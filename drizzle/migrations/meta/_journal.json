@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794867110709,
+      "tag": "0000_hospital_cloud_and_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794867137965,
+      "tag": "0001_medical_and_staff_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794867157620,
+      "tag": "0002_scalable_storage_audit_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794867175555,
+      "tag": "0003_daily_restore_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794867192068,
+      "tag": "0004_restore_points_track_new_pieces",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794867196587,
+      "tag": "0005_list_restore_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794867205711,
+      "tag": "0006_staff_roles_and_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794867210055,
+      "tag": "0007_restrict_state_meta_to_staff",
+      "breakpoints": true
+    }
+  ]
+}

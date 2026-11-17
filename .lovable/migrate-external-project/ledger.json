@@ -1,0 +1,72 @@
+[
+  {
+    "capability": "code",
+    "source": "accounting_system_5.zip (Lovable TanStack project)",
+    "outcome": "migrate",
+    "status": "verified",
+    "next_action": ""
+  },
+  {
+    "capability": "schema",
+    "source": "migrations 0000-0002 + restore points 0003-0005",
+    "outcome": "migrate",
+    "status": "verified",
+    "next_action": ""
+  },
+  {
+    "capability": "records",
+    "source": "hospital document from old project",
+    "outcome": "migrate",
+    "status": "pending",
+    "next_action": "Hospital uploads a backup from the old system (Settings → backup) to restore records"
+  },
+  {
+    "capability": "auth identities",
+    "source": "staff accounts (username/password)",
+    "outcome": "migrate",
+    "status": "pending",
+    "next_action": "No user export supplied; owner creates first account via /auth and re-adds staff"
+  },
+  {
+    "capability": "authorization",
+    "source": "user_roles + section permissions",
+    "outcome": "migrate",
+    "status": "verified",
+    "next_action": ""
+  },
+  {
+    "capability": "uploaded file bytes",
+    "source": "private-files bucket (ID cards, contracts, signatures)",
+    "outcome": "migrate",
+    "status": "pending",
+    "next_action": "Old project's stored files not supplied"
+  },
+  {
+    "capability": "external providers",
+    "source": "Lovable AI gateway (document reading)",
+    "outcome": "preserve",
+    "status": "implemented",
+    "next_action": ""
+  },
+  {
+    "capability": "public endpoints / webhooks / schedules",
+    "source": "none found",
+    "outcome": "none",
+    "status": "verified",
+    "next_action": ""
+  },
+  {
+    "capability": "secrets",
+    "source": "LOVABLE_API_KEY",
+    "outcome": "preserve",
+    "status": "verified",
+    "next_action": ""
+  },
+  {
+    "capability": "verification",
+    "source": "receipt with remaining, collection, patient delete approval, staff contract sign + PDF",
+    "outcome": "verify",
+    "status": "verified",
+    "next_action": ""
+  }
+]
