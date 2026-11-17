@@ -22,7 +22,7 @@ const baseInvoice = {
   date: "2026-11-14",
   patientName: "محمد علي",
   department: "clinics",
-  items: [{ description: "كشف استشاري", qty: 1, unitPrice: 400, kind: "consult" as const }],
+  items: [{ description: "خدمة اختبار", qty: 1, unitPrice: 400, kind: "consult" as const }],
   discount: 0,
   paymentMethod: "cash",
 };

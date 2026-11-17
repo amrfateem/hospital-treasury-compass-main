@@ -21,8 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { BoxSelect, DeptSelect, FieldRow, matches } from "@/components/hospital/kit";
-import { isDeskRole } from "@/lib/hospital/permissions";
+import { DeptSelect, FieldRow, matches } from "@/components/hospital/kit";
+import { boxForDepartment, findBox } from "@/lib/hospital/model";
 import { CLINICAL_GROUPS, findDepartment } from "@/lib/hospital/constants";
 import {
   deskOf,
@@ -37,8 +37,8 @@ import { invoiceAmounts, remainingAfterPayment, stockStatus } from "@/lib/hospit
 import { addMonths, makeInstallments } from "@/lib/hospital/credit";
 import {
   savePatientInvoice,
+  useCan,
   useHospitalDB,
-  useHospitalSession,
   type PatientInvoice,
   type ServiceItem,
   type ServiceKind,
@@ -68,11 +68,8 @@ export function InvoiceDialog({
   onSaved: (inv: PatientInvoice, isEdit: boolean) => void;
 }) {
   const db = useHospitalDB();
-  const { me } = useHospitalSession();
   const { lists, departments, doctors } = db;
-  /** Desk staff always use their own drawer; the accountant and managers choose the drawer. */
-  const picksDrawer = !!me && !isDeskRole(me.role);
-  const [boxId, setBoxId] = useState("main");
+  const canManual = useCan("settings", "edit");
   const [deskKey, setDeskKey] = useState<ReceiptDeskKey>(defaultDesk);
   /** "Other departments" desk: empty until the user picks the department. */
   const [otherDept, setOtherDept] = useState("");
@@ -133,7 +130,6 @@ export function InvoiceDialog({
     setPaid(ownRest ? String(invoiceAmounts(invoice!).paidNow) : "");
     setDate(invoice?.date ?? isoDate(new Date()));
     setPaymentMethod(invoice?.paymentMethod ?? lists.paymentMethods[0]?.id ?? "cash");
-    setBoxId(invoice?.boxId ?? me?.boxId ?? "main");
     setItems(
       invoice?.items.length
         ? invoice.items.map((i) => ({
@@ -313,6 +309,8 @@ export function InvoiceDialog({
     [lists.services, department, clinicDept, desk.stay],
   );
   const sectionServices: CatalogEntry[] = desk.pharmacy ? [...pharmacyItems, ...deskServices] : deskServices;
+  const catalogFor = (it: ItemDraft) =>
+    findDeskService(it.description, sectionServices, sharedServices) as CatalogEntry | undefined;
   const allGroups = useMemo(() => {
     const groups = new Map<string, CatalogEntry[]>();
     for (const s of sectionServices) {
@@ -417,7 +415,6 @@ export function InvoiceDialog({
         items: valid,
         discount: Number(discount) || 0,
         paymentMethod,
-        ...(picksDrawer ? { boxId } : {}),
         notes: notes.trim() || undefined,
         kind: desk.stay ? "inpatient" : "outpatient",
         stay: stayInput ? { ...stayInput, room: stay.room.trim() || undefined } : undefined,
@@ -629,11 +626,14 @@ export function InvoiceDialog({
                   </SelectContent>
                 </Select>
               </FieldRow>
-              {picksDrawer && (
-                <FieldRow label="الخزينة / الحساب البنكي اللي استلم الفلوس">
-                  <BoxSelect value={boxId} onChange={setBoxId} label="الخزينة" />
-                </FieldRow>
-              )}
+              <FieldRow label="الخزينة اللي استلمت الفلوس">
+                <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm font-semibold">
+                  {findBox(db, boxForDepartment(department)).name}
+                  <span className="ms-auto text-[11px] font-normal text-muted-foreground">
+                    تلقائي حسب القسم
+                  </span>
+                </div>
+              </FieldRow>
             </div>
 
             {desk.stay && (
@@ -687,7 +687,7 @@ export function InvoiceDialog({
                                   description: v,
                                   kind: svc?.kind ?? row.kind,
                                   stockItemId: svc?.stockItemId,
-                                  unitPrice: svc && !row.unitPrice && svc.price ? String(svc.price) : row.unitPrice,
+                                  unitPrice: svc ? String(svc.price) : row.unitPrice,
                                 }
                               : row,
                           ),
@@ -695,7 +695,33 @@ export function InvoiceDialog({
                       }}
                     />
                     <Input aria-label="الكمية" type="number" min="1" value={it.qty} onChange={(e) => setItem(idx, "qty", e.target.value)} />
-                    <Input aria-label="السعر" type="number" min="0" step="0.01" placeholder="السعر" value={it.unitPrice} onChange={(e) => setItem(idx, "unitPrice", e.target.value)} />
+                    {(() => {
+                      const svc = catalogFor(it);
+                      const locked = svc ? !svc.variablePrice : !canManual;
+                      return (
+                        <Input
+                          aria-label="السعر"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="السعر"
+                          value={it.unitPrice}
+                          readOnly={locked}
+                          disabled={locked}
+                          title={
+                            locked
+                              ? svc
+                                ? "السعر ثابت من خدمات الأقسام — عدّله من خدمات الأقسام أولًا"
+                                : "خدمة غير مسجلة — أضفها من خدمات الأقسام أولًا"
+                              : svc?.variablePrice
+                                ? "سعر متغيّر: يمكن تعديله في هذا الإيصال"
+                                : "سطر يدوي — أضف الخدمة من خدمات الأقسام لتثبيت سعرها"
+                          }
+                          className={cn(locked && "bg-muted/60 text-muted-foreground")}
+                          onChange={(e) => setItem(idx, "unitPrice", e.target.value)}
+                        />
+                      );
+                    })()}
                     <Button
                       type="button"
                       variant="ghost"
@@ -714,9 +740,11 @@ export function InvoiceDialog({
                   <option key={s.id} value={s.name} />
                 ))}
               </datalist>
-              <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setItems([...items, emptyItem()])}>
-                <Plus /> سطر يدوي
-              </Button>
+              {canManual && (
+                <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setItems([...items, emptyItem()])}>
+                  <Plus /> سطر يدوي
+                </Button>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

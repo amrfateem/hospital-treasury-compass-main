@@ -9,6 +9,7 @@ import { boxBalance } from "@/lib/hospital/finance";
 import { egp } from "@/lib/hospital/format";
 import {
   deleteCashbox,
+  ICU_BOX_ID,
   MAIN_BOX_ID,
   saveCashbox,
   useHospitalDB,
@@ -19,11 +20,13 @@ import { cn } from "@/lib/utils";
 function BoxRow({ box }: { box: Cashbox }) {
   const db = useHospitalDB();
   const [name, setName] = useState(box.name);
+  const cash = box.kind !== "bank";
   const main = box.id === MAIN_BOX_ID;
+  const icu = box.id === ICU_BOX_ID;
   const bal = boxBalance(box.id, db.transactions, db.transfers);
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <Vault className={cn("size-5 shrink-0", main ? "text-primary" : "text-copper")} />
+      <Vault className={cn("size-5 shrink-0", cash ? "text-primary" : "text-copper")} />
       <Input
         value={name}
         aria-label="اسم الخزينة"
@@ -35,16 +38,18 @@ function BoxRow({ box }: { box: Cashbox }) {
         }}
         className="h-9 min-w-40 flex-1"
       />
-      <span className="text-xs text-muted-foreground">{main ? "الخزينة الرئيسية" : "حساب بنكي"}</span>
-      {main && db.shifts.some((s) => !s.closedAt) && (
+      <span className="text-xs text-muted-foreground">
+        {main ? "الخزينة الرئيسية" : icu ? "خزنة العناية المركزة" : cash ? "خزينة نقدية" : "حساب بنكي"}
+      </span>
+      {cash && db.shifts.some((s) => !s.closedAt && s.boxId === box.id) && (
         <span className="rounded-full bg-income/10 px-2 py-0.5 text-[11px] text-income">
-          {db.shifts.filter((s) => !s.closedAt).length} وردية مفتوحة
+          {db.shifts.filter((s) => !s.closedAt && s.boxId === box.id).length} وردية مفتوحة
         </span>
       )}
       <span className={cn("num w-32 text-left font-semibold", bal < 0 && "text-destructive")}>
         {egp(bal)}
       </span>
-      {!main && (
+      {!cash && (
         <>
           <Switch
             checked={box.active}
@@ -72,14 +77,15 @@ function BoxRow({ box }: { box: Cashbox }) {
 
 export function CashboxesManager() {
   const db = useHospitalDB();
-  const boxes = [...db.cashboxes].sort((a, b) => Number(b.id === MAIN_BOX_ID) - Number(a.id === MAIN_BOX_ID));
+  const rank = (b: Cashbox) => (b.id === MAIN_BOX_ID ? 0 : b.id === ICU_BOX_ID ? 1 : 2);
+  const boxes = [...db.cashboxes].sort((a, b) => rank(a) - rank(b));
   return (
     <section className="ledger-card overflow-hidden">
       <div className="border-b bg-secondary/60 px-4 py-3">
-        <h2 className="text-lg font-bold text-secondary-foreground">الخزينة الرئيسية والحسابات البنكية</h2>
+        <h2 className="text-lg font-bold text-secondary-foreground">خزائن المستشفى والحسابات البنكية</h2>
         <p className="text-xs text-muted-foreground">
-          المستشفى ليها خزينة نقدية واحدة: كل موظف بيحصّل فيها في ورديته، والنثريات والمصروفات بتتصرف منها.
-          الحسابات البنكية بتتضاف من صفحة البنوك والمطابقة البنكية.
+          فيه خزنتين نقديتين: الرئيسية وخزنة العناية المركزة. إيصالات العناية تدخل خزنتها، وباقي الأقسام
+          تدخل الرئيسية. الحسابات البنكية بتتضاف من صفحة البنوك والمطابقة البنكية.
         </p>
       </div>
       <ul className="divide-y">

@@ -14,7 +14,7 @@ const receipt = {
   date: "2026-11-14",
   patientName: "محمد علي",
   department: "lab",
-  items: [{ description: "صورة دم", qty: 1, unitPrice: 400, kind: "procedure" as const }],
+  items: [{ description: "خدمة اختبار", qty: 1, unitPrice: 400, kind: "procedure" as const }],
   discount: 0,
   paymentMethod: "cash",
 };

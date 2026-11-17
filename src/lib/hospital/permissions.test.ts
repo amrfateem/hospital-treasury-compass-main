@@ -34,7 +34,7 @@ describe("section permissions set by the director", () => {
     const viewer = { ...finance, perms: { expenses: "view" as const } };
     const input = { date: "2026-11-15", department: "general", category: "operational", description: "كهرباء", amount: 500, boxId: "main", method: "cash" };
     expect(() => runOp(emptyDB(), "addExpense", { id: "e1", input }, ctx(viewer))).toThrow(OpError);
-    expect(runOp(emptyDB(), "addExpense", { id: "e1", input }, ctx(finance)).transactions).toHaveLength(1);
+    expect(runOp(withCash(1000), "addExpense", { id: "e1", input }, ctx(finance)).transactions).toHaveLength(2);
   });
 
   it("lets the director grant a receptionist an extra section", () => {

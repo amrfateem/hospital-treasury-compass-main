@@ -41,8 +41,12 @@ import { depositsOf, dischargeSettlement } from "./inpatient";
 import { payrollDeductions } from "./advances";
 import { computeMonthlyPayroll, isEmployedInPeriod } from "./payroll-tax";
 import {
+  boxForDepartment,
+  boxForRole,
   emptyDB,
   findBox,
+  ICU_BOX_ID,
+  isCashBox,
   listLabel,
   MAIN_BOX_ID,
   nextNumber,
@@ -75,6 +79,7 @@ import {
   type HospitalLists,
   type HospitalSettings,
   type InvoiceDraft,
+  type InvoiceItem,
   type ExportFormat,
   type ListItem,
   type PatientInvoice,
@@ -305,7 +310,7 @@ function withSaleMoves(db: HospitalDB, inv: PatientInvoice, ctx: OpCtx): Hospita
   return { ...db, stockMoves: moves };
 }
 
-const NO_SHIFT = "افتح ورديتك أولًا من صفحة الورديات — كل فلوس بتستلمها بتتسجل على ورديتك في الخزينة الرئيسية.";
+const NO_SHIFT = "افتح ورديتك أولًا من صفحة الورديات — كل فلوس بتستلمها بتتسجل على ورديتك في خزنة قسمك.";
 
 /**
  * Where money is taken or paid: desk staff always work on the one main treasury inside their own
@@ -314,16 +319,45 @@ const NO_SHIFT = "افتح ورديتك أولًا من صفحة الورديا�
 function deskBox(db: HospitalDB, boxId: string | undefined, ctx: OpCtx) {
   let box = boxId || MAIN_BOX_ID;
   if (isDeskRole(ctx.actor.role)) {
-    box = MAIN_BOX_ID;
+    box = boxForRole(ctx.actor.role);
     if (!openShiftOf(db, ctx.actor.id)) fail(NO_SHIFT);
   }
   requireBox(db, box);
   return box;
 }
 
+/** Receipts always land in the treasury of their department; the browser cannot choose another. */
+function invoiceBox(db: HospitalDB, department: string | undefined) {
+  const box = boxForDepartment(department);
+  requireBox(db, box);
+  return box;
+}
+
+/** A non-variable service price is fixed from the department price list. */
+function normalizeInvoiceItems(db: HospitalDB, department: string, clinicId: string | undefined, items: InvoiceItem[], ctx: OpCtx) {
+  return items.map((it) => {
+    const name = it.description.trim();
+    if (it.stockItemId) {
+      const item = db.stockItems.find((x) => x.id === it.stockItemId);
+      if (item?.salePrice != null) return { ...it, unitPrice: round2(item.salePrice) };
+      return it;
+    }
+    const candidates = db.lists.services.filter(
+      (s) => s.name.trim() === name && (!s.department || s.department === department || s.department === clinicId),
+    );
+    const svc =
+      candidates.find((s) => s.department === department) ??
+      candidates.find((s) => s.department === clinicId) ??
+      candidates.find((s) => !s.department);
+    if (svc && !svc.variablePrice) return { ...it, unitPrice: round2(svc.price) };
+    // Old/manual lines stay editable; the receipt screen hides the manual line for non-editors.
+    return it;
+  });
+}
+
 function enoughCash(db: HospitalDB, boxId: string, amount: number) {
   const bal = boxBalance(boxId, db.transactions, db.transfers);
-  if (amount > bal + 0.001) fail(`رصيد «${findBox(db, boxId).name}» ${round2(bal)} ج.م فقط.`);
+  if (amount > bal + 0.001) fail(`رصيد ${findBox(db, boxId).name} ${round2(bal)} ج.م فقط.`);
 }
 
 function openAdmissionOf(db: HospitalDB, id: string): Admission {
@@ -627,6 +661,7 @@ export type PettyInput = {
   description: string;
   amount: number;
   paidTo?: string | undefined;
+  boxId?: string | undefined;
 };
 export type PaymentOrderInput = Pick<
   PaymentOrder,
@@ -671,12 +706,14 @@ function requireDirectSpender(ctx: OpCtx) {
     fail("أي صرف يتم بأمر صرف يعتمده المدير المالي — من صفحة أوامر الصرف والطلبيات.");
 }
 
-/** Records a petty spend out of the main treasury (balance-checked); `ref` links it to its request. */
+/** Records a petty spend out of the chosen cash treasury (balance-checked); `ref` links it to its request. */
 function withPettySpend(db: HospitalDB, id: string, input: PettyInput, ctx: OpCtx, ref?: string): HospitalDB {
   positive(input.amount);
   if (!input.description.trim()) fail("اكتب بيان المصروف النثري.");
-  const balance = boxBalance(MAIN_BOX_ID, db.transactions, db.transfers);
-  if (input.amount > balance + 0.001) fail(`رصيد الخزينة الرئيسية ${balance} ج.م فقط.`);
+  const boxId = input.boxId || MAIN_BOX_ID;
+  const box = requireBox(db, boxId);
+  if (!isCashBox(box)) fail("النثريات تُصرف من خزينة نقدية فقط.");
+  enoughCash(db, boxId, input.amount);
   const tx: Transaction = {
     id,
     date: input.date,
@@ -687,7 +724,7 @@ function withPettySpend(db: HospitalDB, id: string, input: PettyInput, ctx: OpCt
     receiptId: nextReceiptId(db, "PTY", input.date),
     source: "petty",
     ...(ref ? { ref } : {}),
-    ...txBase(db, MAIN_BOX_ID, ctx),
+    ...txBase(db, boxId, ctx),
     method: "cash",
     category: input.category,
     paidTo: input.paidTo?.trim() || undefined,
@@ -727,21 +764,25 @@ export const OPS = {
         if (am.discount > 0 && discountPct(am.subtotal, am.discount) > cap + 0.001)
           fail(`أقصى خصم مسموح لك ${cap}٪ من قيمة الإيصال — الخصم الأكبر يعمله المدير المالي.`);
       }
-      let boxId = input.boxId || existing?.boxId || MAIN_BOX_ID;
-      if (reception) boxId = existing?.boxId ?? MAIN_BOX_ID;
-      requireBox(db, boxId);
+      // ICU receipts always go to the ICU treasury; every other department to the main one.
+      // Accountants may still route a receipt to a bank account; desk staff may not.
+      let boxId = invoiceBox(db, input.department);
+      const requestedBox = input.boxId ? db.cashboxes.find((b) => b.id === input.boxId) : undefined;
+      if (!isDeskRole(ctx.actor.role) && requestedBox?.kind === "bank") boxId = requestedBox.id;
+      const items = normalizeInvoiceItems(db, input.department, input.clinicId, input.items ?? [], ctx);
+      const normalized = { ...input, items };
       const shift = existing ? existing.shiftId : openShiftOf(db, ctx.actor.id)?.id;
       if (reception && !existing && !shift) fail(NO_SHIFT);
       const inv: PatientInvoice = existing
         ? {
             ...existing,
-            ...input,
+            ...normalized,
             boxId,
             unlocked: false,
             insurerPaid: input.payer ? existing.insurerPaid : undefined,
           }
         : {
-            ...input,
+            ...normalized,
             boxId,
             id,
             number: nextNumber(
@@ -790,13 +831,16 @@ export const OPS = {
   ),
 
   /* ----- Daily closing of the main treasury (opening + in − out = closing, signed on paper) ----- */
-  closeCashDay: op<{ id: string; date: string; counted: number; note?: string | undefined }>(
+  closeCashDay: op<{ id: string; date: string; boxId?: string | undefined; counted: number; note?: string | undefined }>(
     "treasury",
     (db, a, ctx) => {
-      const blocker = closeDayBlocker(db, a.date, ctx.today);
+      const boxId = a.boxId || MAIN_BOX_ID;
+      const box = requireBox(db, boxId);
+      if (!isCashBox(box)) fail("الإقفال اليومي للخزائن النقدية فقط.");
+      const blocker = closeDayBlocker(db, a.date, ctx.today, boxId);
       if (blocker) fail(blocker);
       if (!Number.isFinite(Number(a.counted)) || Number(a.counted) < 0) fail("اكتب النقدية الفعلية اللي اتعدّت في الخزينة.");
-      const rec = buildClosing(db, a, { now: ctx.now, name: ctx.actor.name, id: ctx.actor.id, role: ctx.actor.role });
+      const rec = buildClosing(db, a, { now: ctx.now, name: ctx.actor.name, id: ctx.actor.id, role: ctx.actor.role }, boxId);
       if (Math.abs(rec.difference) > 0.001 && !rec.note)
         fail(`فيه ${rec.difference < 0 ? "عجز" : "زيادة"} ${Math.abs(rec.difference)} ج.م بين المعدود والمتوقع — اكتب السبب في الملاحظات.`);
       if (db.dailyClosings.some((c) => c.id === a.id)) fail("هذا الإقفال مسجّل بالفعل.");
@@ -804,9 +848,9 @@ export const OPS = {
     },
   ),
 
-  requestDayReopen: op<{ date: string; reason: string }>("treasury", (db, { date, reason }, ctx) => {
+  requestDayReopen: op<{ date: string; boxId?: string | undefined; reason: string }>("treasury", (db, { date, reason, boxId }, ctx) => {
     if (!reason?.trim()) fail("اكتب سبب إعادة فتح اليوم.");
-    const list = closedDays(db);
+    const list = closedDays(db, boxId || MAIN_BOX_ID);
     const rec = list.find((c) => c.date === date);
     if (!rec) fail("هذا اليوم ليس مقفولًا.");
     if (list[list.length - 1]!.date !== date) fail("أعد فتح الأيام الأحدث أولًا — تُفتح الأيام بعكس ترتيب إقفالها.");
@@ -1064,6 +1108,9 @@ export const OPS = {
    */
   openShift: op<{ id: string; boxId?: string | undefined; openingFloat: number }>("shifts", (db, a, ctx) => {
     if (openShiftOf(db, ctx.actor.id)) fail("عندك وردية مفتوحة بالفعل — قفّلها الأول.");
+    const boxId = isDeskRole(ctx.actor.role) ? boxForRole(ctx.actor.role) : (a.boxId || MAIN_BOX_ID);
+    const box = requireBox(db, boxId);
+    if (!isCashBox(box)) fail("الورديات تُفتح على الخزائن النقدية فقط.");
     const n = db.shifts.length + 1;
     return {
       ...db,
@@ -1072,7 +1119,7 @@ export const OPS = {
         {
           id: a.id,
           number: String(n),
-          boxId: MAIN_BOX_ID,
+          boxId,
           openedAt: ctx.now,
           openedBy: ctx.actor.name,
           openedById: ctx.actor.id,
@@ -1128,7 +1175,7 @@ export const OPS = {
               closedBy: ctx.actor.name,
               expected,
               counted,
-              // The cash never leaves the main treasury: closing only counts it against the person.
+              // Closing only counts the cash against the person; it stays in its treasury.
               handover: "main",
               note: a.note?.trim() || undefined,
             }
@@ -1150,6 +1197,7 @@ export const OPS = {
     requireBox(db, a.from);
     requireBox(db, a.to);
     if (!(a.amount > 0)) fail("المبلغ يجب أن يكون أكبر من صفر.");
+    enoughCash(db, a.from, a.amount);
     return {
       ...db,
       transfers: [
@@ -1174,17 +1222,51 @@ export const OPS = {
     transfers: db.transfers.filter((t) => t.id !== id),
   })),
 
+  /** Owner money placed in a cash treasury: capital, not revenue, and not collected by anyone. */
+  fundCashbox: op<{ id: string; boxId: string; date: string; amount: number; note?: string | undefined }>(
+    "treasury",
+    (db, a, ctx) => {
+      if (ctx.actor.role !== "admin") fail("تمويل الخزينة من صاحب المستشفى يسجله المدير فقط.");
+      const box = requireBox(db, a.boxId);
+      if (!isCashBox(box)) fail("التمويل يكون لخزينة نقدية.");
+      if (!(a.amount > 0)) fail("اكتب مبلغ التمويل.");
+      const tx: Transaction = {
+        id: a.id,
+        date: a.date,
+        department: GENERAL_DEPT_ID,
+        kind: "in",
+        description: `تمويل من صاحب المستشفى — ${box.name}${a.note?.trim() ? ` — ${a.note.trim()}` : ""}`,
+        amount: round2(a.amount),
+        receiptId: nextReceiptId(db, "FND", a.date),
+        source: "owner-funding",
+        boxId: a.boxId,
+        method: "cash",
+        by: "صاحب المستشفى",
+        createdAt: ctx.now,
+      };
+      return { ...db, transactions: [...db.transactions, tx] };
+    },
+  ),
+
+  deleteOwnerFunding: op<{ id: string }>("treasury", (db, { id }, ctx) => {
+    if (ctx.actor.role !== "admin") fail("حذف تمويل صاحب المستشفى للمدير فقط.");
+    const tx = db.transactions.find((t) => t.id === id && t.source === "owner-funding");
+    if (!tx) fail("حركة التمويل غير موجودة.");
+    return { ...db, transactions: db.transactions.filter((t) => t.id !== id) };
+  }),
+
   saveCashbox: op<Cashbox>("settings", (db, b) => {
     if (!b.name.trim()) fail("اكتب اسم الخزينة.");
     const existing = db.cashboxes.find((x) => x.id === b.id);
-    if (b.id !== MAIN_BOX_ID && existing?.kind !== "bank")
-      fail("الفلوس كلها في خزينة رئيسية واحدة — مفيش أدراج. الحسابات البنكية بتتضاف من صفحة البنوك.");
-    const box: Cashbox = b.id === MAIN_BOX_ID ? { ...b, kind: "main", active: true } : { ...b, kind: "bank" };
+    const cashTreasury = b.id === MAIN_BOX_ID || b.id === ICU_BOX_ID;
+    if (!cashTreasury && existing?.kind !== "bank")
+      fail("الخزائن النقدية هي الرئيسية والعناية المركزة فقط. الحسابات البنكية بتتضاف من صفحة البنوك.");
+    const box: Cashbox = cashTreasury ? { ...b, kind: "main", active: true } : { ...b, kind: "bank" };
     return { ...db, cashboxes: upsert(db.cashboxes, box) };
   }),
 
   deleteCashbox: op<{ id: string }>("settings", (db, { id }) => {
-    if (id === MAIN_BOX_ID) fail("لا يمكن حذف الخزينة الرئيسية.");
+    if (id === MAIN_BOX_ID || id === ICU_BOX_ID) fail("لا يمكن حذف خزائن المستشفى الأساسية.");
     const used =
       db.transactions.some((t) => t.boxId === id) ||
       db.shifts.some((s) => s.boxId === id) ||
@@ -1199,7 +1281,10 @@ export const OPS = {
     const input = raw.fx ? { ...raw, amount: round2(raw.fx.amount * raw.fx.rate) } : raw;
     if (raw.fx && !(raw.fx.rate > 0 && raw.fx.amount > 0)) fail("اكتب المبلغ بالعملة وسعر الصرف.");
     if (!(input.amount > 0)) fail("المبلغ يجب أن يكون أكبر من صفر.");
-    if (input.kind === "out") requireDirectSpender(ctx);
+    if (input.kind === "out") {
+      requireDirectSpender(ctx);
+      enoughCash(db, input.boxId || MAIN_BOX_ID, input.amount);
+    }
     return {
       ...db,
       transactions: [
@@ -1498,7 +1583,9 @@ export const OPS = {
     requireDirectSpender(ctx);
     if (!input.description.trim()) fail("اكتب بيان المصروف.");
     if (!input.category) fail("اختر بند المصروف.");
-    requireBox(db, input.boxId || MAIN_BOX_ID);
+    const boxId = input.boxId || MAIN_BOX_ID;
+    requireBox(db, boxId);
+    enoughCash(db, boxId, input.amount);
     const tx: Transaction = {
       id,
       date: input.date,
@@ -1508,7 +1595,7 @@ export const OPS = {
       amount: round2(input.amount),
       receiptId: nextReceiptId(db, "EXP", input.date),
       source: "expense",
-      ...txBase(db, input.boxId, ctx),
+      ...txBase(db, boxId, ctx),
       method: input.method || "cash",
       category: input.category,
       paidTo: input.paidTo?.trim() || undefined,
@@ -1542,6 +1629,9 @@ export const OPS = {
   requestPetty: op<{ id: string; input: PettyInput }>("pettyCash", (db, { id, input }, ctx) => {
     positive(input.amount);
     if (!input.description.trim()) fail("اكتب بيان المصروف النثري.");
+    const boxId = input.boxId || MAIN_BOX_ID;
+    const box = requireBox(db, boxId);
+    if (!isCashBox(box)) fail("النثريات تُصرف من خزينة نقدية فقط.");
     if (db.pettyRequests.some((r) => r.id === id)) fail("الطلب مسجل بالفعل.");
     const req: PettyRequest = {
       id,
@@ -1560,6 +1650,7 @@ export const OPS = {
       requestedBy: ctx.actor.name,
       requestedById: ctx.actor.id,
       requestedRole: ctx.actor.role,
+      boxId,
       createdAt: ctx.now,
     };
     return { ...db, pettyRequests: [...db.pettyRequests, req] };
@@ -1591,7 +1682,7 @@ export const OPS = {
     const r = db.pettyRequests.find((x) => x.id === a.id);
     if (!r) fail("طلب النثرية غير موجود.");
     if (r!.status !== "approved") fail("لا تُصرف نثرية إلا بعد اعتماد المدير المالي.");
-    const next = withPettySpend(db, `tx-${r!.id}`, { ...r!, date: a.date || r!.date }, ctx, r!.id);
+    const next = withPettySpend(db, `tx-${r!.id}`, { ...r!, boxId: r!.boxId, date: a.date || r!.date }, ctx, r!.id);
     return {
       ...next,
       pettyRequests: db.pettyRequests.map((x) =>
@@ -1604,13 +1695,13 @@ export const OPS = {
     if (r?.status === "paid") fail("تم صرف هذا الطلب — احذف حركة الصرف من الدفتر أولًا.");
     return { ...db, pettyRequests: db.pettyRequests.filter((x) => x.id !== id) };
   }),
-  /** Retired: petty spends come straight out of the main treasury (kept so queued old entries get an answer). */
+  /** Retired: petty spends come straight out of the chosen treasury (kept so queued old entries get an answer). */
   topUpPetty: op<{ id: string; date: string; amount: number; from: string; note?: string | undefined }>(
     "pettyCash",
-    () => fail("النثريات بقت بتتصرف من الخزينة الرئيسية مباشرة — مفيش تغذية لخزينة منفصلة."),
+    () => fail("النثريات بتتصرف من الخزينة المختارة مباشرة — مفيش تغذية لخزينة منفصلة."),
   ),
   deletePettyTopUp: op<{ id: string }>("pettyCash", () =>
-    fail("النثريات بقت بتتصرف من الخزينة الرئيسية مباشرة — مفيش تغذية لخزينة منفصلة."),
+    fail("النثريات بتتصرف من الخزينة المختارة مباشرة — مفيش تغذية لخزينة منفصلة."),
   ),
 
   /* ----- Financial review (المراجعة) ----- */
@@ -2566,7 +2657,8 @@ export const OPS = {
     (db, a, ctx) => {
       positive(a.amount);
       const adm = openAdmissionOf(db, a.admissionId);
-      const boxId = deskBox(db, a.boxId, ctx);
+      const boxId = invoiceBox(db, adm.ward);
+      if (isDeskRole(ctx.actor.role) && !openShiftOf(db, ctx.actor.id)) fail(NO_SHIFT);
       const tx: Transaction = {
         id: a.id,
         date: a.date,
@@ -2654,7 +2746,8 @@ export const OPS = {
       const adm = openAdmissionOf(db, a.admissionId);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(a.dischargeDate) || a.dischargeDate < adm.date) fail("تاريخ الخروج قبل تاريخ الدخول.");
       if (db.patientInvoices.some((i) => i.id === a.invoiceId)) fail("الفاتورة موجودة بالفعل.");
-      const boxId = deskBox(db, a.boxId, ctx);
+      const boxId = invoiceBox(db, adm.ward);
+      if (isDeskRole(ctx.actor.role) && !openShiftOf(db, ctx.actor.id)) fail(NO_SHIFT);
       const base: PatientInvoice = {
         id: a.invoiceId,
         number: nextNumber(db.patientInvoices.map((i) => i.number), "INV", a.dischargeDate),
@@ -3091,7 +3184,9 @@ export function runOp<K extends OpName>(db: HospitalDB, name: K, args: OpArgs<K>
 }
 
 export const OP_LABELS: Record<OpName, string> = {
-  closeCashDay: "الإقفال اليومي للخزينة الرئيسية",
+  closeCashDay: "الإقفال اليومي لإحدى الخزائن",
+  fundCashbox: "تمويل خزينة من صاحب المستشفى",
+  deleteOwnerFunding: "حذف تمويل من صاحب المستشفى",
   requestDayReopen: "طلب إعادة فتح يوم مقفول",
   decideDayReopen: "اعتماد / رفض إعادة فتح يوم مقفول",
   closeFiscalYear: "إقفال وأرشفة سنة مالية",

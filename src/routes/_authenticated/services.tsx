@@ -235,10 +235,18 @@ function ServicesPage() {
                     <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold">{s.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {SERVICE_KINDS[s.kind ?? "other"]}
-                          {s.stay === "room" && " — سعر يوم إقامة"}
-                          {s.stay === "supervision" && " — سعر يوم إشراف"}
+                        <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>{SERVICE_KINDS[s.kind ?? "other"]}</span>
+                          {s.stay === "room" && <span>— سعر يوم إقامة</span>}
+                          {s.stay === "supervision" && <span>— سعر يوم إشراف</span>}
+                          {s.variablePrice && (
+                            <span className="rounded-full bg-copper/15 px-2 py-0.5 font-semibold text-copper">
+                              سعر متغيّر
+                            </span>
+                          )}
+                          {!s.variablePrice && (
+                            <span className="rounded-full bg-muted px-2 py-0.5">سعر ثابت</span>
+                          )}
                         </p>
                       </div>
                       <PriceCell svc={s} editable={canEdit} />

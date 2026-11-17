@@ -1,9 +1,10 @@
 import { ArrowDownLeft, ArrowUpRight, Timer, Users, Vault } from "lucide-react";
 import { useMemo, useState } from "react";
-import { EmptyRow, HeadRow, TableCard, Td, Th } from "@/components/hospital/kit";
+import { BoxSelect, EmptyRow, HeadRow, TableCard, Td, Th } from "@/components/hospital/kit";
 import { isoDate, money, monthLabel } from "@/lib/hospital/format";
+import { ICU_BOX_ID, MAIN_BOX_ID } from "@/lib/hospital/model";
 import { listLabel, useHospitalDB } from "@/lib/hospital/store";
-import { mainTreasurySummary, type Range } from "@/lib/hospital/treasury-summary";
+import { boxTreasurySummary, type Range } from "@/lib/hospital/treasury-summary";
 import { cn } from "@/lib/utils";
 
 /** Range of a ledger period ("YYYY-MM" or "all"). */
@@ -21,9 +22,15 @@ export function MainTreasuryPanel({ period }: { period: string }) {
   const db = useHospitalDB();
   const today = isoDate(new Date());
   const [span, setSpan] = useState<"today" | "period">("today");
+  const [boxId, setBoxId] = useState(MAIN_BOX_ID);
   const range = span === "today" ? { from: today, to: today } : periodRange(period);
-  const sum = useMemo(() => mainTreasurySummary(db, range), [db, range.from, range.to]); // eslint-disable-line react-hooks/exhaustive-deps
-  const todaySum = useMemo(() => mainTreasurySummary(db, { from: today, to: today }), [db, today]);
+  const sum = useMemo(() => boxTreasurySummary(db, range, boxId), [db, range.from, range.to, boxId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const todaySum = useMemo(() => boxTreasurySummary(db, { from: today, to: today }, boxId), [db, today, boxId]);
+  const icuBalance = useMemo(
+    () => boxTreasurySummary(db, { from: "0000-01-01", to: "9999-12-31" }, ICU_BOX_ID).balance,
+    [db],
+  );
+  const boxName = db.cashboxes.find((b) => b.id === boxId)?.name ?? "الخزينة";
   const methods = Object.keys(sum.byMethod);
   const totals = sum.collectors.reduce(
     (t, r) => ({ count: t.count + r.count, collected: t.collected + r.collected, paidOut: t.paidOut + r.paidOut, short: t.short + r.shortage, surplus: t.surplus + r.surplus, net: t.net + r.net }),
@@ -37,10 +44,13 @@ export function MainTreasuryPanel({ period }: { period: string }) {
         <div className="relative z-10 flex flex-wrap items-end justify-between gap-4">
           <div>
             <span className="hero-chip">
-              <Vault className="size-3.5" /> الخزينة الرئيسية — كل فلوس المستشفى النقدية في مكان واحد
+              <Vault className="size-3.5" /> {boxName}
             </span>
-            <p className="mt-3 text-xs opacity-80">رصيد الخزينة الرئيسية الآن</p>
+            <p className="mt-3 text-xs opacity-80">رصيد {boxName} الآن</p>
             <p className="num font-display text-3xl font-bold tracking-tight">{money(sum.balance)} ج.م</p>
+            <p className="mt-1 text-xs opacity-75">
+              خزنة العناية المركزة: <strong className="num">{money(icuBalance)}</strong> ج.م
+            </p>
           </div>
           <div className="flex flex-wrap gap-2 text-sm">
             <span className="hero-chip">
@@ -52,10 +62,12 @@ export function MainTreasuryPanel({ period }: { period: string }) {
             <span className="hero-chip">
               <Timer className="size-3.5" /> ورديات مفتوحة {sum.openShifts.length}
             </span>
+            <BoxSelect value={boxId} onChange={setBoxId} cashOnly className="w-44" />
           </div>
         </div>
         <p className="relative z-10 mt-3 text-[11px] opacity-75">
-          مفيش أدراج منفصلة: كل موظف بيحصّل في ورديته على الخزينة الرئيسية، والنثريات والمصروفات بتتصرف منها مباشرة، والحسابات البنكية لوحدها.
+          كل موظف بيحصّل في ورديته على خزنة قسمه: العناية على خزنة العناية، وباقي الأقسام على الرئيسية.
+          النثريات والمصروفات بتتصرف من الخزينة المختارة، والحسابات البنكية لوحدها.
         </p>
       </div>
 

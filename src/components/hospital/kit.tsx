@@ -370,17 +370,21 @@ export function BoxSelect({
   value,
   onChange,
   allowAll = false,
+  cashOnly = false,
   className,
   label = "الخزينة",
 }: {
   value: string;
   onChange: (v: string) => void;
   allowAll?: boolean;
+  cashOnly?: boolean;
   className?: string;
   label?: string;
 }) {
   const { cashboxes } = useHospitalDB();
-  const visible = cashboxes.filter((b) => b.active || b.id === value);
+  const visible = cashboxes.filter(
+    (b) => (b.active || b.id === value) && (!cashOnly || b.kind !== "bank"),
+  );
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger aria-label={label} className={cn("bg-card", className)}>

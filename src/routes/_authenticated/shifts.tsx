@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/hospital/ui";
 import { DocInfoGrid, EmptyRow, FieldRow, HeadRow, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
 import { OfficialDocument, SignatureBlock } from "@/components/hospital/OfficialDocument";
 import { shiftDifferences, shiftExpected } from "@/lib/hospital/finance";
+import { boxForRole } from "@/lib/hospital/model";
 import { dateLabel, egp, isoDate, money } from "@/lib/hospital/format";
 import {
   closeShift,
@@ -34,7 +35,7 @@ export const Route = createFileRoute("/_authenticated/shifts")({
   head: () => ({
     meta: [
       { title: "الورديات وتقفيل الشيفت | مستشفى الرحمة التخصصي" },
-      { name: "description", content: "فتح وتقفيل وردية كل موظف على الخزينة الرئيسية مع المتوقع والفعلي لكل طريقة دفع والعجز والزيادة." },
+      { name: "description", content: "فتح وتقفيل وردية كل موظف على خزنة قسمه مع المتوقع والفعلي لكل طريقة دفع والعجز والزيادة." },
       { property: "og:title", content: "الورديات وتقفيل الشيفت | مستشفى الرحمة التخصصي" },
       { property: "og:description", content: "تقفيل الشيفت: المتوقع مقابل الفعلي لكل موظف." },
       { property: "og:type", content: "website" },
@@ -54,6 +55,7 @@ function ShiftsPage() {
   const [printing, setPrinting] = useState<Shift | null>(null);
   const pdf = usePdfExport();
   const reception = isDeskRole(me?.role);
+  const boxId = boxForRole(me?.role);
   const mine = openShiftOf(db, me?.id);
   const others = reception ? [] : db.shifts.filter((s) => !s.closedAt && s.openedById !== me?.id);
   const history = useMemo(
@@ -75,10 +77,10 @@ function ShiftsPage() {
       <PageHeader
         eyebrow="الخزينة"
         title="الورديات وتقفيل الشيفت"
-        description="كل موظف بيفتح ورديته على الخزينة الرئيسية قبل التحصيل، وفي نهاية الشيفت يعدّ اللي معاه لكل طريقة دفع ويسلّمه: الفرق بيتسجل تلقائيًا عجزًا أو زيادة باسمه."
+        description="كل موظف بيفتح ورديته على خزنة قسمه قبل التحصيل: العناية على خزنة العناية، وباقي الأقسام على الرئيسية. في نهاية الشيفت يعدّ اللي معاه لكل طريقة دفع ويسلّمه: الفرق بيتسجل تلقائيًا عجزًا أو زيادة باسمه."
       />
       <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {mine ? <OpenShiftCard shift={mine} onClose={() => setClosing(mine)} /> : <ClosedBoxCard boxId="main" />}
+        {mine ? <OpenShiftCard shift={mine} onClose={() => setClosing(mine)} /> : <ClosedBoxCard boxId={boxId} />}
         {others.map((s) => (
           <OpenShiftCard key={s.id} shift={s} onClose={() => setClosing(s)} />
         ))}
@@ -119,7 +121,7 @@ function ShiftsPage() {
                 <Td num className={cn("font-bold", diff < -0.004 ? "text-expense" : diff > 0.004 ? "text-income" : "")}>
                   {money(diff)}
                 </Td>
-                <Td className="text-xs">للخزينة الرئيسية</Td>
+                <Td className="text-xs">{findBox(db, s.boxId).name}</Td>
                 <Td>
                   <Button size="icon" variant="ghost" aria-label="تقرير التقفيل" onClick={() => setPrinting(s)} disabled={pdf.busy}>
                     <FileDown />
@@ -178,7 +180,7 @@ function OpenShiftCard({ shift, onClose }: { shift: Shift; onClose: () => void }
   return (
     <section className="ledger-card border-primary/40 p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-bold">{shift.openedBy} — الخزينة الرئيسية</h3>
+        <h3 className="font-bold">{shift.openedBy} — {findBox(db, shift.boxId).name}</h3>
         <span className="flex items-center gap-1 rounded-full bg-income/10 px-2 py-0.5 text-xs font-semibold text-income">
           <Timer className="size-3.5" /> وردية {shift.number} مفتوحة
         </span>
@@ -212,7 +214,7 @@ function ClosedBoxCard({ boxId }: { boxId: string }) {
   return (
     <section className="ledger-card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-bold">ورديتك على الخزينة الرئيسية</h3>
+        <h3 className="font-bold">ورديتك على {findBox(db, boxId).name}</h3>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">لا توجد وردية مفتوحة</span>
       </div>
       <form

@@ -13,8 +13,8 @@ export interface Range {
   to: string;
 }
 
-/** Money in that is not collection from patients/payers: opening balances and shift surplus. */
-const NOT_COLLECTION = new Set<Transaction["source"]>(["opening", "shift"]);
+/** Money in that is not collection from patients/payers: opening balances, shift surplus and owner funding. */
+const NOT_COLLECTION = new Set<Transaction["source"]>(["opening", "shift", "owner-funding"]);
 
 export interface CollectorRow {
   /** Stable key: the shift owner's user id, or the recorded name. */
@@ -55,16 +55,17 @@ export function entryOwner(t: Pick<Transaction, "shiftId" | "by">, shifts: Shift
   return { key: `n:${name}`, name };
 }
 
-/** Main treasury figures for a period, with each person's collections and shift differences. */
-export function mainTreasurySummary(
+/** Cash-treasury figures for a period, with each person's collections and shift differences. */
+export function boxTreasurySummary(
   db: Pick<HospitalDB, "transactions" | "transfers" | "shifts">,
   range: Range,
+  boxId: string = MAIN_BOX_ID,
 ): MainTreasurySummary {
-  const inMain = (t: Transaction) => (t.boxId ?? MAIN_BOX_ID) === MAIN_BOX_ID;
+  const inMain = (t: Transaction) => (t.boxId ?? MAIN_BOX_ID) === boxId;
   const main = db.transactions.filter(inMain);
-  const transfers = db.transfers.filter((t) => t.from === MAIN_BOX_ID || t.to === MAIN_BOX_ID);
+  const transfers = db.transfers.filter((t) => t.from === boxId || t.to === boxId);
   const signedTx = (t: Transaction) => (t.kind === "in" ? t.amount : -t.amount);
-  const signedTrf = (t: (typeof transfers)[number]) => (t.to === MAIN_BOX_ID ? t.amount : -t.amount);
+  const signedTrf = (t: (typeof transfers)[number]) => (t.to === boxId ? t.amount : -t.amount);
 
   const opening = r2(
     main.filter((t) => t.date < range.from).reduce((s, t) => s + signedTx(t), 0) +
@@ -74,11 +75,11 @@ export function mainTreasurySummary(
   const trfRange = transfers.filter((t) => t.date >= range.from && t.date <= range.to);
   const periodIn = r2(
     inRange.filter((t) => t.kind === "in").reduce((s, t) => s + t.amount, 0) +
-      trfRange.filter((t) => t.to === MAIN_BOX_ID).reduce((s, t) => s + t.amount, 0),
+      trfRange.filter((t) => t.to === boxId).reduce((s, t) => s + t.amount, 0),
   );
   const periodOut = r2(
     inRange.filter((t) => t.kind === "out").reduce((s, t) => s + t.amount, 0) +
-      trfRange.filter((t) => t.from === MAIN_BOX_ID).reduce((s, t) => s + t.amount, 0),
+      trfRange.filter((t) => t.from === boxId).reduce((s, t) => s + t.amount, 0),
   );
 
   const rows = new Map<string, CollectorRow>();
@@ -93,7 +94,7 @@ export function mainTreasurySummary(
   };
   const byMethod: Record<string, number> = {};
   for (const t of inRange) {
-    if (t.source === "opening") continue;
+    if (t.source === "opening" || t.source === "owner-funding") continue;
     const r = row(t);
     if (t.source === "shift") {
       if (t.kind === "in") r.surplus = r2(r.surplus + t.amount);
@@ -106,7 +107,7 @@ export function mainTreasurySummary(
       byMethod[m] = r2((byMethod[m] ?? 0) + t.amount);
     } else if (t.kind === "out") r.paidOut = r2(r.paidOut + t.amount);
   }
-  const openShifts = db.shifts.filter((s) => !s.closedAt);
+  const openShifts = db.shifts.filter((s) => !s.closedAt && s.boxId === boxId);
   for (const s of openShifts) {
     const key = `u:${s.openedById}`;
     const r = rows.get(key) ?? { key, name: s.openedBy, count: 0, collected: 0, paidOut: 0, byMethod: {}, shortage: 0, surplus: 0, net: 0 };
@@ -118,7 +119,7 @@ export function mainTreasurySummary(
     .sort((a, b) => b.collected - a.collected || a.name.localeCompare(b.name));
 
   return {
-    balance: boxBalance(MAIN_BOX_ID, db.transactions, db.transfers),
+    balance: boxBalance(boxId, db.transactions, db.transfers),
     opening,
     periodIn,
     periodOut,
@@ -127,4 +128,12 @@ export function mainTreasurySummary(
     collectors,
     openShifts,
   };
+}
+
+/** Backwards-compatible main-treasury view. */
+export function mainTreasurySummary(
+  db: Pick<HospitalDB, "transactions" | "transfers" | "shifts">,
+  range: Range,
+): MainTreasurySummary {
+  return boxTreasurySummary(db, range, MAIN_BOX_ID);
 }

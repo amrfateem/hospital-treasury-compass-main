@@ -99,7 +99,13 @@ describe("a user cannot go beyond the permission the director set", () => {
     const exp = { date: "2026-11-15", department: "general", category: "operational", description: "كهرباء", amount: 500, boxId: "main", method: "cash" };
     expect(() => runOp(emptyDB(), "addExpense", { id: "e1", input: exp }, ctx(spender))).toThrow(OpError);
     expect(() => runOp(emptyDB(), "addTransaction", { id: "t1", input: { date: "2026-11-15", department: "general", kind: "out", description: "سحب", amount: 100, source: "manual" } }, ctx(spender))).toThrow(OpError);
-    expect(runOp(emptyDB(), "addExpense", { id: "e1", input: exp }, ctx(finance)).transactions).toHaveLength(1);
+    const funded = runOp(
+      emptyDB(),
+      "addTransaction",
+      { id: "open", input: { date: "2026-11-01", department: "general", kind: "in", description: "رصيد افتتاحي", amount: 1000, source: "opening" } },
+      ctx(director),
+    );
+    expect(runOp(funded, "addExpense", { id: "e1", input: exp }, ctx(finance)).transactions).toHaveLength(2);
   });
 });
 

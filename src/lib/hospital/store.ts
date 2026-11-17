@@ -627,6 +627,9 @@ export const addTransfer = (t: {
   note?: string | undefined;
 }) => dispatch("addTransfer", { id: newId(), ...t });
 export const deleteTransfer = (id: string) => dispatch("deleteTransfer", { id });
+export const fundCashbox = (boxId: string, date: string, amount: number, note?: string) =>
+  dispatch("fundCashbox", { id: newId(), boxId, date, amount, note });
+export const deleteOwnerFunding = (id: string) => dispatch("deleteOwnerFunding", { id });
 export const saveCashbox = (b: Cashbox) => dispatch("saveCashbox", b);
 export const deleteCashbox = (id: string) => dispatch("deleteCashbox", { id });
 
@@ -780,9 +783,10 @@ export async function decidePatientDelete(id: string, approve: boolean) {
 }
 export const closeFiscalYear = (year: number) => dispatch("closeFiscalYear", { year });
 export const reopenFiscalYear = (year: number, reason: string) => dispatch("reopenFiscalYear", { year, reason });
-export const closeCashDay = (date: string, counted: number, note?: string) =>
-  dispatch("closeCashDay", { id: `dc-${date}-${newId()}`, date, counted, note });
-export const requestDayReopen = (date: string, reason: string) => dispatch("requestDayReopen", { date, reason });
+export const closeCashDay = (date: string, counted: number, note?: string, boxId = "main") =>
+  dispatch("closeCashDay", { id: `dc-${boxId}-${date}-${newId()}`, date, boxId, counted, note });
+export const requestDayReopen = (date: string, reason: string, boxId = "main") =>
+  dispatch("requestDayReopen", { date, boxId, reason });
 export const decideDayReopen = (id: string, approve: boolean, note?: string) =>
   dispatch("decideDayReopen", { id, approve, note });
 

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDownLeft, ArrowUpRight, FileDown, Pencil, Plus, Scale, Trash2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, FileDown, HandCoins, Pencil, Plus, Scale, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DeptSelect, matches, SearchBox } from "@/components/hospital/kit";
+import { BoxSelect, DeptSelect, matches, SearchBox } from "@/components/hospital/kit";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,7 @@ import { toEgp } from "@/lib/hospital/branches";
 import {
   addTransaction,
   deleteTransaction,
+  fundCashbox,
   updateTransaction,
   useHospitalDB,
   TX_SOURCE_LABELS,
@@ -39,7 +40,7 @@ import {
 } from "@/lib/hospital/store";
 import { cn } from "@/lib/utils";
 import { MainTreasuryPanel } from "@/components/hospital/treasury/MainTreasuryPanel";
-import { MAIN_BOX_ID } from "@/lib/hospital/model";
+import { ICU_BOX_ID, MAIN_BOX_ID } from "@/lib/hospital/model";
 import { isDeskRole } from "@/lib/hospital/permissions";
 import { useHospitalSession } from "@/lib/hospital/store";
 
@@ -80,6 +81,7 @@ function TreasuryPage() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const [fundOpen, setFundOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const docRef = useRef<HTMLDivElement>(null);
 
@@ -166,6 +168,11 @@ function TreasuryPage() {
             >
               <Plus /> قيد جديد
             </Button>
+            {me?.role === "admin" && (
+              <Button variant="secondary" onClick={() => setFundOpen(true)}>
+                <HandCoins /> تمويل من صاحب المستشفى
+              </Button>
+            )}
             <Button variant="outline" onClick={handleExport} disabled={exporting}>
               <FileDown /> {exporting ? "جارٍ التصدير..." : "تصدير PDF"}
             </Button>
@@ -353,6 +360,7 @@ function TreasuryPage() {
         tx={editing}
         defaultDepartment={dept === "all" ? GENERAL_DEPT_ID : dept}
       />
+      <FundDialog open={fundOpen} onOpenChange={setFundOpen} />
 
       <OfficialDocument
         ref={docRef}
@@ -438,6 +446,88 @@ function matchText(q: string, ...f: string[]) {
   return matches(q, ...f);
 }
 
+function FundDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [boxId, setBoxId] = useState(ICU_BOX_ID);
+  const [date, setDate] = useState(isoDate(new Date()));
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setBoxId(ICU_BOX_ID);
+    setDate(isoDate(new Date()));
+    setAmount("");
+    setNote("");
+    setError("");
+  }, [open]);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const n = Number(amount);
+    if (!(n > 0)) return setError("اكتب مبلغ التمويل.");
+    setBusy(true);
+    if (fundCashbox(boxId, date, n, note.trim() || undefined)) {
+      toast.success("تم تسجيل تمويل صاحب المستشفى — لا يدخل في الإيرادات.");
+      onOpenChange(false);
+    } else {
+      setError("تعذّر تسجيل التمويل.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent dir="rtl" className="sm:max-w-md">
+        <DialogHeader className="text-right sm:text-right">
+          <DialogTitle className="font-display text-2xl">تمويل من صاحب المستشفى</DialogTitle>
+          <DialogDescription>
+            يُضاف رصيد للخزينة المختارة ويُسجَّل كجاري صاحب المستشفى — مش إيراد، ومحدش يظهر كمحصّل.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label>الخزينة</Label>
+            <BoxSelect value={boxId} onChange={setBoxId} cashOnly />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="fund-date">التاريخ</Label>
+            <Input id="fund-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="fund-amount">المبلغ (ج.م)</Label>
+            <Input
+              id="fund-amount"
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              autoFocus
+              required
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="fund-note">ملاحظات (اختياري)</Label>
+            <Input id="fund-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثال: تمويل تشغيل العناية" />
+          </div>
+          {error && <p className="text-sm font-semibold text-destructive">{error}</p>}
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              إلغاء
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "جارٍ التسجيل..." : "تسجيل التمويل"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function TransactionDialog({
   open,
   onOpenChange,
@@ -454,6 +544,7 @@ function TransactionDialog({
   const [kind, setKind] = useState<"in" | "out">("in");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [boxId, setBoxId] = useState(MAIN_BOX_ID);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
   const { settings } = useHospitalDB();
@@ -470,6 +561,7 @@ function TransactionDialog({
     setKind(tx?.kind ?? "in");
     setDescription(tx?.description ?? "");
     setAmount(tx ? String(tx.amount) : "");
+    setBoxId(tx?.boxId ?? MAIN_BOX_ID);
     setOpening(tx?.source === "opening");
     setCurrency(tx?.fx?.currency ?? "EGP");
     setRate(tx?.fx ? String(tx.fx.rate) : "");
@@ -486,7 +578,7 @@ function TransactionDialog({
     const fx = foreign ? { currency, amount: value, rate: Number(rate) } : undefined;
     const egpValue = fx ? toEgp(value, fx.rate) : value;
     if (tx) {
-      updateTransaction(tx.id, { date, department, kind, description: desc, amount: egpValue, ...(fx ? { fx } : {}) });
+      updateTransaction(tx.id, { date, department, kind, description: desc, amount: egpValue, boxId, ...(fx ? { fx } : {}) });
       toast.success("تم تعديل القيد.");
     } else {
       addTransaction({
@@ -496,6 +588,7 @@ function TransactionDialog({
         description: desc,
         amount: egpValue,
         fx,
+        boxId,
         source: opening ? "opening" : "manual",
       });
       toast.success(
@@ -567,6 +660,10 @@ function TransactionDialog({
                 <DeptSelect value={department} onChange={setDepartment} />
               </div>
             )}
+            <div className="grid gap-1.5">
+              <Label>الخزينة</Label>
+              <BoxSelect value={boxId} onChange={setBoxId} cashOnly />
+            </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="tx-desc">البيان</Label>

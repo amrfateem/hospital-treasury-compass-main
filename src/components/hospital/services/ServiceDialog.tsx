@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -60,6 +61,7 @@ export function ServiceDialog({
   const [kind, setKind] = useState<ServiceKind>("procedure");
   const [price, setPrice] = useState("");
   const [stay, setStay] = useState<StayChoice>("none");
+  const [variablePrice, setVariablePrice] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -71,6 +73,7 @@ export function ServiceDialog({
     setKind(service?.kind ?? "procedure");
     setPrice(service ? String(service.price) : "");
     setStay(service?.stay ?? "none");
+    setVariablePrice(!!service?.variablePrice);
   }, [open, service, draft]);
 
   const groups = [
@@ -102,6 +105,7 @@ export function ServiceDialog({
       kind,
       group: group.trim() || undefined,
       stay: stay === "none" ? undefined : stay,
+      variablePrice: variablePrice || undefined,
     };
     if (!saveListItem("services", item)) return;
     toast.success(service ? `تم تعديل ${n}.` : `تمت إضافة ${n} لقائمة الأسعار.`);
@@ -185,6 +189,15 @@ export function ServiceDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-start justify-between gap-3 rounded-lg border p-3 sm:col-span-2">
+            <div>
+              <Label htmlFor="svc-variable" className="cursor-pointer">سعر متغيّر</Label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                يسمح بتعديل السعر في الإيصال. بدون التفعيل، السعر ثابت من هذه القائمة ولا يقدر المحاسب يغيّره.
+              </p>
+            </div>
+            <Switch id="svc-variable" checked={variablePrice} onCheckedChange={setVariablePrice} aria-label="سعر متغيّر" />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>طريقة الحساب</Label>

@@ -5,7 +5,7 @@ import { useJournal } from "@/components/hospital/accounting/drill";
 import { boxBalance } from "@/lib/hospital/finance";
 import { dateLabel, money, monthLabel } from "@/lib/hospital/format";
 import { dashboardTotals, type PeriodTotals } from "@/lib/hospital/income-expense";
-import { MAIN_BOX_ID, isBank } from "@/lib/hospital/model";
+import { ICU_BOX_ID, MAIN_BOX_ID, isBank } from "@/lib/hospital/model";
 import { useHospitalDB } from "@/lib/hospital/store";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +21,7 @@ export function MoneyAtAGlance({ today, showTreasury, showTotals }: { today: str
   const { entries } = useJournal(today);
   const totals = useMemo(() => dashboardTotals(entries, today), [entries, today]);
   const cash = boxBalance(MAIN_BOX_ID, db.transactions, db.transfers);
+  const icuCash = boxBalance(ICU_BOX_ID, db.transactions, db.transfers);
   const banks = db.cashboxes.filter((b) => isBank(b) && b.active);
   const bankTotal = banks.reduce((s, b) => s + boxBalance(b.id, db.transactions, db.transfers), 0);
   if (!showTreasury && !showTotals) return null;
@@ -44,6 +45,10 @@ export function MoneyAtAGlance({ today, showTreasury, showTotals }: { today: str
           </div>
           <p className={cn("num mt-2 font-display text-3xl font-bold", cash < 0 ? "text-expense" : "text-primary")}>{money(cash)}</p>
           <p className="text-xs text-muted-foreground">جنيه مصري — نقدي</p>
+          <p className="mt-2 flex items-center justify-between border-t pt-2 text-xs text-muted-foreground">
+            <span>خزنة العناية</span>
+            <strong className={cn("num", icuCash < 0 ? "text-expense" : "text-foreground")}>{money(icuCash)}</strong>
+          </p>
           {banks.length > 0 && (
             <p className="mt-3 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
               <Landmark className="size-3.5" /> في البنوك: <strong className="num text-foreground">{money(bankTotal)}</strong>

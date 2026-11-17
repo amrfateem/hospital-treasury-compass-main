@@ -18,7 +18,7 @@ const receipt = (extra: Record<string, unknown> = {}) => ({
   patientId: PID,
   patientMrn: "MRN-000001",
   department: "clinics",
-  items: [{ description: "كشف استشاري", qty: 1, unitPrice: 1000 }],
+  items: [{ description: "خدمة اختبار", qty: 1, unitPrice: 1000 }],
   discount: 0,
   paymentMethod: "cash",
   ...extra,

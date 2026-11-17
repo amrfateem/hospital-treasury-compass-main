@@ -117,7 +117,8 @@ export type TxSource =
   | "collection"
   | "deposit"
   | "refund"
-  | "advance";
+  | "advance"
+  | "owner-funding";
 
 export const TX_SOURCE_LABELS: Record<TxSource, string> = {
   manual: "يدوي",
@@ -136,6 +137,7 @@ export const TX_SOURCE_LABELS: Record<TxSource, string> = {
   deposit: "تأمين مريض مقيم",
   refund: "مرتجع لمريض",
   advance: "سلفة موظف",
+  "owner-funding": "تمويل من صاحب المستشفى",
 };
 
 export interface Transaction {
@@ -369,7 +371,7 @@ export interface StockMove {
 export interface Cashbox {
   id: string;
   name: string;
-  /** main treasury, a sub drawer, or a bank account (reconciled against bank statements). */
+  /** A cash treasury (main, ICU), a legacy drawer, or a bank account. */
   kind: "main" | "sub" | "bank";
   active: boolean;
   bankName?: string | undefined;
@@ -381,12 +383,21 @@ export interface Cashbox {
   branchId?: string | undefined;
 }
 export const isBank = (b: Pick<Cashbox, "kind"> | undefined) => b?.kind === "bank";
+export const isCashBox = (b: Pick<Cashbox, "kind"> | undefined) => !!b && b.kind !== "bank";
 export const MAIN_BOX_ID = "main";
+export const ICU_BOX_ID = "icu";
 export const PETTY_BOX_ID = "petty";
-/** One cash treasury for the whole hospital (every desk, expense and petty spend); banks stay separate. */
+/** The two cash treasuries; bank accounts stay separate. */
 export const DEFAULT_CASHBOXES: Cashbox[] = [
   { id: MAIN_BOX_ID, name: "الخزينة الرئيسية", kind: "main", active: true },
+  { id: ICU_BOX_ID, name: "خزنة العناية المركزة", kind: "main", active: true },
 ];
+
+/** ICU receipts and ICU shifts use the ICU treasury; every other department uses the main one. */
+export const boxForDepartment = (department: string | null | undefined) =>
+  department === "icu" ? ICU_BOX_ID : MAIN_BOX_ID;
+export const boxForRole = (role: string | null | undefined) =>
+  role === "icu_manager" ? ICU_BOX_ID : MAIN_BOX_ID;
 
 export interface Shift {
   id: string;
@@ -500,6 +511,8 @@ export interface DayClosingCollector {
 export interface DailyClosing {
   id: string;
   date: string;
+  /** Cash treasury this day belongs to (old records default to the main treasury). */
+  boxId?: string | undefined;
   status: "closed" | "reopened";
   opening: number;
   totalIn: number;
@@ -627,6 +640,8 @@ export interface PettyRequest {
   decisionNote?: string | undefined;
   paidBy?: string | undefined;
   paidOn?: string | undefined;
+  /** Treasury the request is paid from (main / ICU). */
+  boxId?: string | undefined;
 }
 
 /* ---------------- Purchase orders & receiving (الطلبيات والاستلام) ---------------- */
@@ -833,6 +848,8 @@ export interface ServiceItem extends ListItem {
   group?: string | undefined;
   /** Marks the department's daily room / supervision rate (used for stays such as ICU). */
   stay?: "room" | "supervision" | undefined;
+  /** Allows the price to be typed on a receipt; otherwise it is fixed from this list. */
+  variablePrice?: boolean | undefined;
 }
 export interface PayerItem extends ListItem {
   /** Default coverage percentage. */
@@ -1231,6 +1248,8 @@ export function normalizeDB(parsed: Partial<HospitalDB> | Record<string, unknown
     departments.unshift(DEFAULT_DEPARTMENTS.find((d) => d.id === GENERAL_DEPT_ID)!);
   const cashboxes = p.cashboxes?.length ? [...p.cashboxes] : base.cashboxes;
   if (!cashboxes.some((b) => b.id === MAIN_BOX_ID)) cashboxes.unshift({ ...DEFAULT_CASHBOXES[0]! });
+  if (!cashboxes.some((b) => b.id === ICU_BOX_ID))
+    cashboxes.push({ ...DEFAULT_CASHBOXES.find((b) => b.id === ICU_BOX_ID)! });
   const arr = <K extends keyof HospitalDB>(k: K) =>
     (Array.isArray(p[k]) ? p[k] : base[k]) as HospitalDB[K];
   return foldDrawers({
@@ -1263,7 +1282,7 @@ export function normalizeDB(parsed: Partial<HospitalDB> | Record<string, unknown
     editRequests: arr("editRequests"),
     patientDeleteRequests: arr("patientDeleteRequests"),
     fiscalYears: arr("fiscalYears"),
-    dailyClosings: arr("dailyClosings"),
+    dailyClosings: arr("dailyClosings").map((c) => ({ ...c, boxId: c.boxId ?? MAIN_BOX_ID })),
     paymentOrders: arr("paymentOrders"),
     pettyRequests: arr("pettyRequests"),
     purchaseOrders: arr("purchaseOrders"),

@@ -19,11 +19,11 @@ import {
   type Transaction,
   type Transfer,
 } from "./model";
-import { mainTreasurySummary } from "./treasury-summary";
+import { boxTreasurySummary } from "./treasury-summary";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const inMain = (t: Pick<Transaction, "boxId">) => (t.boxId ?? MAIN_BOX_ID) === MAIN_BOX_ID;
-const touchesMain = (t: Pick<Transfer, "from" | "to">) => t.from === MAIN_BOX_ID || t.to === MAIN_BOX_ID;
+const inBox = (t: Pick<Transaction, "boxId">, boxId: string) => (t.boxId ?? MAIN_BOX_ID) === boxId;
+const touchesBox = (t: Pick<Transfer, "from" | "to">, boxId: string) => t.from === boxId || t.to === boxId;
 const methodOf = (m: string | undefined) => m || "cash";
 
 export interface DayEntry {
@@ -62,12 +62,12 @@ function addLine(map: Map<string, DayClosingLine>, key: string, label: string, a
   map.set(key, l);
 }
 
-/** Everything about the main treasury on one day, derived from the entries. */
-export function dayReport(db: Db, date: string): DayReport {
-  const s = mainTreasurySummary(db, { from: date, to: date });
+/** Everything about one cash treasury on one day, derived from the entries. */
+export function dayReport(db: Db, date: string, boxId: string = MAIN_BOX_ID): DayReport {
+  const s = boxTreasurySummary(db, { from: date, to: date }, boxId);
   const boxName = (id: string) => db.cashboxes.find((b) => b.id === id)?.name ?? id;
-  const txs = db.transactions.filter((t) => inMain(t) && t.date === date);
-  const trfs = db.transfers.filter((t) => touchesMain(t) && t.date === date);
+  const txs = db.transactions.filter((t) => inBox(t, boxId) && t.date === date);
+  const trfs = db.transfers.filter((t) => touchesBox(t, boxId) && t.date === date);
 
   const ins = new Map<string, DayClosingLine>();
   const outs = new Map<string, DayClosingLine>();
@@ -79,7 +79,7 @@ export function dayReport(db: Db, date: string): DayReport {
     } else addLine(outs, `src:${t.source}`, TX_SOURCE_LABELS[t.source] ?? t.source, t.amount);
   }
   for (const t of trfs) {
-    if (t.to === MAIN_BOX_ID) addLine(ins, `trf:${t.from}`, `تحويل وارد من ${boxName(t.from)}`, t.amount);
+    if (t.to === boxId) addLine(ins, `trf:${t.from}`, `تحويل وارد من ${boxName(t.from)}`, t.amount);
     else addLine(outs, `trf:${t.to}`, `تحويل إلى ${boxName(t.to)}`, t.amount);
   }
 
@@ -89,9 +89,9 @@ export function dayReport(db: Db, date: string): DayReport {
     const k = methodOf(m);
     byMethod[k] = r2((byMethod[k] ?? 0) + n);
   };
-  for (const t of db.transactions) if (inMain(t) && t.date <= date) bump(t.method, t.kind === "in" ? t.amount : -t.amount);
+  for (const t of db.transactions) if (inBox(t, boxId) && t.date <= date) bump(t.method, t.kind === "in" ? t.amount : -t.amount);
   for (const t of db.transfers)
-    if (touchesMain(t) && t.date <= date) bump(t.method, t.to === MAIN_BOX_ID ? t.amount : -t.amount);
+    if (touchesBox(t, boxId) && t.date <= date) bump(t.method, t.to === boxId ? t.amount : -t.amount);
   for (const k of Object.keys(byMethod)) if (Math.abs(byMethod[k]!) < 0.005) delete byMethod[k];
   const expectedCash = r2(byMethod["cash"] ?? 0);
 
@@ -111,12 +111,12 @@ export function dayReport(db: Db, date: string): DayReport {
     ...trfs.map((t) => ({
       id: t.id,
       ref: t.number,
-      description: t.note || (t.to === MAIN_BOX_ID ? `تحويل من ${boxName(t.from)}` : `تحويل إلى ${boxName(t.to)}`),
+      description: t.note || (t.to === boxId ? `تحويل من ${boxName(t.from)}` : `تحويل إلى ${boxName(t.to)}`),
       type: "تحويل",
       by: t.by ?? "",
       method: methodName(t.method),
-      in: t.to === MAIN_BOX_ID ? t.amount : 0,
-      out: t.from === MAIN_BOX_ID ? t.amount : 0,
+      in: t.to === boxId ? t.amount : 0,
+      out: t.from === boxId ? t.amount : 0,
       createdAt: t.createdAt,
     })),
   ].sort((a, b) => a.createdAt - b.createdAt);
@@ -148,25 +148,31 @@ export function dayReport(db: Db, date: string): DayReport {
   };
 }
 
-/** Closed (not reopened) daily closings, oldest first. */
-export const closedDays = (db: Pick<HospitalDB, "dailyClosings">) =>
-  (db.dailyClosings ?? []).filter((c) => c.status === "closed").sort((a, b) => a.date.localeCompare(b.date));
+/** Closed (not reopened) daily closings for one treasury, oldest first. */
+export const closedDays = (db: Pick<HospitalDB, "dailyClosings">, boxId: string = MAIN_BOX_ID) =>
+  (db.dailyClosings ?? [])
+    .filter((c) => c.status === "closed" && (c.boxId ?? MAIN_BOX_ID) === boxId)
+    .sort((a, b) => a.date.localeCompare(b.date));
 
-/** Last closed day: entries on or before it are frozen. */
-export function closedThrough(db: Pick<HospitalDB, "dailyClosings">): string | null {
-  const list = closedDays(db);
+/** Last closed day in one treasury: entries on or before it are frozen. */
+export function closedThrough(db: Pick<HospitalDB, "dailyClosings">, boxId: string = MAIN_BOX_ID): string | null {
+  const list = closedDays(db, boxId);
   return list.length ? list[list.length - 1]!.date : null;
 }
 
-export const closingOf = (db: Pick<HospitalDB, "dailyClosings">, date: string) =>
-  closedDays(db).find((c) => c.date === date);
+export const closingOf = (db: Pick<HospitalDB, "dailyClosings">, date: string, boxId: string = MAIN_BOX_ID) =>
+  closedDays(db, boxId).find((c) => c.date === date);
 
-/** Days with main-treasury movement after the last closed day, up to `today`, oldest first. */
-export function unclosedDays(db: Pick<HospitalDB, "transactions" | "transfers" | "dailyClosings">, today: string): string[] {
-  const after = closedThrough(db) ?? "";
+/** Days with movement in one treasury after the last closed day, up to `today`, oldest first. */
+export function unclosedDays(
+  db: Pick<HospitalDB, "transactions" | "transfers" | "dailyClosings">,
+  today: string,
+  boxId: string = MAIN_BOX_ID,
+): string[] {
+  const after = closedThrough(db, boxId) ?? "";
   const days = new Set<string>();
-  for (const t of db.transactions) if (inMain(t) && t.date > after && t.date <= today) days.add(t.date);
-  for (const t of db.transfers) if (touchesMain(t) && t.date > after && t.date <= today) days.add(t.date);
+  for (const t of db.transactions) if (inBox(t, boxId) && t.date > after && t.date <= today) days.add(t.date);
+  for (const t of db.transfers) if (touchesBox(t, boxId) && t.date > after && t.date <= today) days.add(t.date);
   return [...days].sort();
 }
 
@@ -175,16 +181,17 @@ export function closeDayBlocker(
   db: Pick<HospitalDB, "transactions" | "transfers" | "dailyClosings" | "shifts">,
   date: string,
   today: string,
+  boxId: string = MAIN_BOX_ID,
 ): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "تاريخ غير صحيح.";
   if (date > today) return "لا يمكن إقفال يوم لم ينتهِ بعد.";
-  const through = closedThrough(db);
+  const through = closedThrough(db, boxId);
   if (through && date <= through)
-    return closingOf(db, date) ? `يوم ${date} مقفول بالفعل.` : `الأيام حتى ${through} مقفولة بالفعل.`;
-  const earlier = unclosedDays(db, today).find((d) => d < date);
+    return closingOf(db, date, boxId) ? `يوم ${date} مقفول بالفعل.` : `الأيام حتى ${through} مقفولة بالفعل.`;
+  const earlier = unclosedDays(db, today, boxId).find((d) => d < date);
   if (earlier) return `اقفل يوم ${earlier} أولًا — الأيام تُقفل بالترتيب.`;
-  // An open shift could still record money on this day.
-  const open = db.shifts.filter((s) => !s.closedAt);
+  // An open shift on this treasury could still record money on this day.
+  const open = db.shifts.filter((s) => !s.closedAt && s.boxId === boxId);
   if (open.length && date >= today) return `توجد وردية مفتوحة (${open[0]!.openedBy}) — تُقفل كل الورديات قبل إقفال اليوم.`;
   for (const s of open)
     if (db.transactions.some((t) => t.shiftId === s.id && t.date <= date))
@@ -197,12 +204,14 @@ export function buildClosing(
   db: Db,
   input: { id: string; date: string; counted: number; note?: string | undefined },
   by: { now: number; name: string; id: string; role?: DailyClosing["closedRole"] },
+  boxId: string = MAIN_BOX_ID,
 ): DailyClosing {
-  const r = dayReport(db, input.date);
+  const r = dayReport(db, input.date, boxId);
   const counted = r2(Number(input.counted) || 0);
   return {
     id: input.id,
     date: input.date,
+    boxId,
     status: "closed",
     opening: r.opening,
     totalIn: r.totalIn,
@@ -244,9 +253,16 @@ function stable(v: unknown): string {
  * dated on or before the last closed day was added, removed, edited or moved), or null.
  */
 export function lockedDayChange(prev: HospitalDB, next: HospitalDB): string | null {
-  const through = closedThrough(prev);
-  if (!through) return null;
-  const check = <T extends { id: string; date: string }>(a: T[], b: T[], main: (x: T) => boolean): string | null => {
+  const throughOf = (boxId: string | undefined) => closedThrough(prev, boxId ?? MAIN_BOX_ID);
+  const frozen = (x: { date: string; boxId?: string | undefined } | undefined) => {
+    if (!x) return false;
+    const through = throughOf(x.boxId);
+    return !!through && x.date <= through;
+  };
+  const changed = <T extends { id: string; date: string; boxId?: string | undefined }>(
+    a: T[],
+    b: T[],
+  ): string | null => {
     if (a === b) return null;
     const inA = new Set(a);
     const inB = new Set(b);
@@ -254,7 +270,6 @@ export function lockedDayChange(prev: HospitalDB, next: HospitalDB): string | nu
     const after = new Map<string, T>();
     for (const x of a) if (!inB.has(x)) before.set(x.id, x);
     for (const x of b) if (!inA.has(x)) after.set(x.id, x);
-    const frozen = (x: T | undefined) => !!x && main(x) && x.date <= through;
     for (const id of new Set([...before.keys(), ...after.keys()])) {
       const o = before.get(id);
       const n = after.get(id);
@@ -264,10 +279,21 @@ export function lockedDayChange(prev: HospitalDB, next: HospitalDB): string | nu
     }
     return null;
   };
-  return (
-    check(prev.transactions ?? [], next.transactions ?? [], inMain) ??
-    check(prev.transfers ?? [], next.transfers ?? [], touchesMain)
-  );
+  const txChange = changed(prev.transactions ?? [], next.transactions ?? []);
+  if (txChange) return txChange;
+  // Transfers have two sides; either closed treasury freezes the day.
+  const inA = new Set(prev.transfers ?? []);
+  const inB = new Set(next.transfers ?? []);
+  const before = new Map((prev.transfers ?? []).filter((x) => !inB.has(x)).map((x) => [x.id, x]));
+  const after = new Map((next.transfers ?? []).filter((x) => !inA.has(x)).map((x) => [x.id, x]));
+  for (const id of new Set([...before.keys(), ...after.keys()])) {
+    const o = before.get(id);
+    const n = after.get(id);
+    if (o && n && stable(o) === stable(n)) continue;
+    const sides = [o?.from, o?.to, n?.from, n?.to].filter(Boolean) as string[];
+    if (sides.some((box) => frozen({ date: (o ?? n)!.date, boxId: box }))) return (o ?? n)!.date;
+  }
+  return null;
 }
 
 export const lockedDayMessage = (date: string) =>

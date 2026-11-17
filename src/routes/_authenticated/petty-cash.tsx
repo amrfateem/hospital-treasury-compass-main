@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { DeptBadge, PageHeader, StatCard } from "@/components/hospital/ui";
 import {
+  BoxSelect,
   DeptSelect,
   EmptyRow,
   FieldRow,
@@ -45,6 +46,7 @@ import {
   canSpendDirectly,
   deletePettyExpense,
   deletePettyRequest,
+  findBox,
   listLabel,
   MAIN_BOX_ID,
   ORDER_STATUS_LABELS,
@@ -58,10 +60,10 @@ import {
 export const Route = createFileRoute("/_authenticated/petty-cash")({
   head: () => ({
     meta: [
-      { title: "النثريات — مصروفات صغيرة من الخزينة الرئيسية | مستشفى الرحمة التخصصي" },
+      { title: "النثريات — مصروفات صغيرة من خزنة القسم | مستشفى الرحمة التخصصي" },
       {
         name: "description",
-        content: "طلبات واعتماد وصرف النثريات من الخزينة الرئيسية مباشرة، مع المنصرف حسب البند والقسم.",
+        content: "طلبات واعتماد وصرف النثريات من الخزينة المختارة، مع المنصرف حسب البند والقسم.",
       },
       { property: "og:title", content: "النثريات | مستشفى الرحمة التخصصي" },
       { property: "og:description", content: "دفتر النثريات المنصرفة من الخزينة الرئيسية حسب البند والقسم." },
@@ -119,7 +121,7 @@ function PettyCashPage() {
       <PageHeader
         eyebrow="المصروفات"
         title="النثريات"
-        description="المصروفات الصغيرة اليومية بتتصرف من الخزينة الرئيسية مباشرة — مفيش خزينة نثريات منفصلة. أي صرف يتم بطلب يعتمده المدير المالي أولًا، وبعد الصرف بيتسجل تلقائيًا في المصروفات تحت حساب النثريات."
+        description="المصروفات الصغيرة اليومية بتتصرف من الخزينة اللي تختارها (الرئيسية أو العناية). أي صرف يتم بطلب يعتمده المدير المالي أولًا، وبعد الصرف بيتسجل تلقائيًا في المصروفات تحت حساب النثريات."
         actions={
           <>
             {canAdd && (
@@ -139,7 +141,7 @@ function PettyCashPage() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="رصيد الخزينة الرئيسية (اللي بتتصرف منه)" value={money(balance)} icon={Coins} tone="primary" hint="ج.م" />
+        <StatCard label="رصيد الخزينة الرئيسية" value={money(balance)} icon={Coins} tone="primary" hint="ج.م" />
         <StatCard label="منصرف نثريات الفترة" value={money(spent)} icon={ArrowUpRight} tone="expense" hint={`${rows.length} عملية صرف`} />
         <StatCard label="منصرف النثريات من أول السنة" value={money(ytd)} icon={Receipt} />
         <StatCard label="طلبات مستنية" value={String(waiting.length)} icon={Hourglass} hint={`${money(waiting.reduce((s, r) => s + r.amount, 0))} ج.م`} />
@@ -221,7 +223,7 @@ function PettyCashPage() {
         </div>
       </div>
 
-      <SpendDialog open={dialog} onOpenChange={setDialog} balance={balance} direct={direct} />
+      <SpendDialog open={dialog} onOpenChange={setDialog} direct={direct} />
 
       <OfficialDocument
         ref={pdf.ref}
@@ -316,6 +318,9 @@ function PettyRequests({ canAdd, canEdit, balance }: { canAdd: boolean; canEdit:
       <ul>
         {rows.map((r) => {
           const mine = me?.id === r.requestedById;
+          const boxId = r.boxId ?? MAIN_BOX_ID;
+          const rBalance = boxBalance(boxId, db.transactions, db.transfers);
+          const boxName = db.cashboxes.find((b) => b.id === boxId)?.name ?? "الخزينة";
           return (
             <li key={r.id} className="flex flex-col gap-2 border-b px-4 py-3 last:border-0 md:flex-row md:items-center">
               <span className="font-mono text-xs" dir="ltr">
@@ -327,7 +332,7 @@ function PettyRequests({ canAdd, canEdit, balance }: { canAdd: boolean; canEdit:
                   {r.paidTo ? ` — المستلم: ${r.paidTo}` : ""}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  {listLabel(db.lists.pettyCategories, r.category)} • طلبه {mine ? "أنت" : r.requestedBy} • {dateLabel(r.date)}
+                  {listLabel(db.lists.pettyCategories, r.category)} • {boxName} • طلبه {mine ? "أنت" : r.requestedBy} • {dateLabel(r.date)}
                   {r.decidedBy ? ` • ${r.status === "rejected" ? "رفضه" : "اعتمده"} ${r.decidedBy}` : ""}
                   {r.decisionNote ? ` — ${r.decisionNote}` : ""}
                 </p>
@@ -338,10 +343,10 @@ function PettyRequests({ canAdd, canEdit, balance }: { canAdd: boolean; canEdit:
                 {canAdd && r.status === "approved" && (
                   <Button
                     size="sm"
-                    disabled={r.amount > balance + 0.001}
-                    title={r.amount > balance + 0.001 ? "رصيد الخزينة الرئيسية لا يكفي" : undefined}
+                    disabled={r.amount > rBalance + 0.001}
+                    title={r.amount > rBalance + 0.001 ? `رصيد ${boxName} لا يكفي` : undefined}
                     onClick={() => {
-                      if (!window.confirm(`صرف ${egp(r.amount)} من الخزينة الرئيسية؟`)) return;
+                      if (!window.confirm(`صرف ${egp(r.amount)} من ${boxName}؟`)) return;
                       if (payPettyRequest(r.id, isoDate(new Date()))) toast.success(`تم صرف ${egp(r.amount)}.`);
                     }}
                   >
@@ -374,12 +379,10 @@ function PettyRequests({ canAdd, canEdit, balance }: { canAdd: boolean; canEdit:
 function SpendDialog({
   open,
   onOpenChange,
-  balance,
   direct,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  balance: number;
   direct: boolean;
 }) {
   const db = useHospitalDB();
@@ -390,6 +393,7 @@ function SpendDialog({
     description: "",
     paidTo: "",
     amount: "",
+    boxId: MAIN_BOX_ID,
   });
   const [f, setF] = useState(blank);
   const [error, setError] = useState("");
@@ -408,7 +412,7 @@ function SpendDialog({
     if (!(amount > 0)) return setError("المبلغ يجب أن يكون أكبر من صفر.");
     if (direct) {
       if (addPettyExpense({ ...f, amount })) {
-        toast.success(`تم صرف ${egp(amount)} نثريات من الخزينة الرئيسية.`);
+        toast.success(`تم صرف ${egp(amount)} نثريات من ${findBox(db, f.boxId).name}.`);
         onOpenChange(false);
       }
     } else if (requestPetty({ ...f, amount })) {
@@ -424,14 +428,17 @@ function SpendDialog({
           <DialogTitle className="font-display text-2xl">{direct ? "صرف نثرية" : "طلب صرف نثرية"}</DialogTitle>
           <DialogDescription>
             {direct
-              ? `بتتصرف من الخزينة الرئيسية مباشرة — الرصيد المتاح: ${egp(balance)}`
-              : `الطلب يُرسل للمدير المالي، ويُصرف من الخزينة الرئيسية بعد اعتماده. الرصيد الحالي: ${egp(balance)}`}
+              ? `بتتصرف من الخزينة المختارة مباشرة — الرصيد المتاح: ${egp(boxBalance(f.boxId, db.transactions, db.transfers))}`
+              : `الطلب يُرسل للمدير المالي، ويُصرف من الخزينة المختارة بعد اعتماده.`}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <FieldRow label="التاريخ" htmlFor="pt-date">
               <Input id="pt-date" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required />
+            </FieldRow>
+            <FieldRow label="الخزينة">
+              <BoxSelect value={f.boxId} onChange={(v) => setF({ ...f, boxId: v })} cashOnly />
             </FieldRow>
             <FieldRow label="البند">
               <Select value={f.category} onValueChange={(v) => setF({ ...f, category: v })}>

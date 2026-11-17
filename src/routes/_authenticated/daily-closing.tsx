@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, StatCard } from "@/components/hospital/ui";
-import { EmptyRow, FieldRow, HeadRow, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
+import { BoxSelect, EmptyRow, FieldRow, HeadRow, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
 import { OfficialDocument, SignatureBlock } from "@/components/hospital/OfficialDocument";
 import {
   closeDayBlocker,
@@ -29,7 +29,7 @@ import {
   type DayReport,
 } from "@/lib/hospital/daily-closing";
 import { dateLabel, int, isoDate, money } from "@/lib/hospital/format";
-import { listLabel, type DailyClosing, type DayClosingLine } from "@/lib/hospital/model";
+import { findBox, listLabel, MAIN_BOX_ID, type DailyClosing, type DayClosingLine } from "@/lib/hospital/model";
 import { canApprove } from "@/lib/hospital/permissions";
 import {
   closeCashDay,
@@ -68,18 +68,22 @@ function DailyClosingPage() {
   const { me } = useHospitalSession();
   const canClose = useCan("treasury", "add");
   const today = isoDate(new Date());
-  const waiting = unclosedDays(db, today);
-  const through = closedThrough(db);
+  const [boxId, setBoxId] = useState(MAIN_BOX_ID);
+  const waiting = unclosedDays(db, today, boxId);
+  const through = closedThrough(db, boxId);
   const [date, setDate] = useState(() => waiting[0] ?? today);
   const [closingOpen, setClosingOpen] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
-  const report = useMemo(() => dayReport(db, date), [db, date]);
-  const record = closingOf(db, date);
+  const report = useMemo(() => dayReport(db, date, boxId), [db, date, boxId]);
+  const record = closingOf(db, date, boxId);
   const locked = !!through && date <= through;
-  const blocker = closeDayBlocker(db, date, today);
+  const blocker = closeDayBlocker(db, date, today, boxId);
   const history = useMemo(
-    () => [...db.dailyClosings].sort((a, b) => b.date.localeCompare(a.date) || b.closedAt - a.closedAt),
-    [db.dailyClosings],
+    () =>
+      db.dailyClosings
+        .filter((c) => (c.boxId ?? MAIN_BOX_ID) === boxId)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.closedAt - a.closedAt),
+    [db.dailyClosings, boxId],
   );
   const pending = record?.reopen?.status === "pending" ? record : undefined;
   const mayDecide = !!pending && !!me && canApprove(me, pending.reopen!);
@@ -98,11 +102,23 @@ function DailyClosingPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="الخزينة الرئيسية"
-        title="الإقفال اليومي"
-        description="كل يوم يُقفل بترتيبه: رصيد أول اليوم + الوارد − المنصرف = رصيد آخر اليوم، وتُقارن بالنقدية المعدودة. بعد الإقفال لا تتعدل أي حركة خزينة بتاريخه إلا بعد موافقة المدير المالي على إعادة فتحه."
+        eyebrow="الخزائن النقدية"
+        title="الإقفال اليومي لكل خزنة"
+        description="كل خزنة (الرئيسية أو العناية) تُقفل أيامها لوحدها: رصيد أول اليوم + الوارد − المنصرف = رصيد آخر اليوم، وتُقارن بالنقدية المعدودة. بعد الإقفال لا تتعدل حركة تلك الخزنة في اليوم المقفول إلا بعد موافقة المدير المالي على إعادة فتحه."
         actions={
           <div className="flex flex-wrap items-end gap-2">
+            <FieldRow label="الخزينة">
+              <BoxSelect
+                value={boxId}
+                onChange={(v) => {
+                  setBoxId(v);
+                  const next = unclosedDays(db, today, v);
+                  setDate(next[0] ?? today);
+                }}
+                cashOnly
+                className="w-44"
+              />
+            </FieldRow>
             <FieldRow label="اليوم" htmlFor="dc-date">
               <Input id="dc-date" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-44" />
             </FieldRow>
@@ -314,9 +330,9 @@ function DailyClosingPage() {
         </tbody>
       </TableCard>
 
-      <CloseDialog open={closingOpen} date={date} report={report} onClose={() => setClosingOpen(false)} />
-      <ReopenDialog open={reopenOpen} date={date} direct={me?.role === "admin"} onClose={() => setReopenOpen(false)} />
-      <DayDocument pdfRef={pdf.ref} date={date} report={report} record={record} methodName={methodName} />
+      <CloseDialog open={closingOpen} date={date} boxId={boxId} report={report} onClose={() => setClosingOpen(false)} />
+      <ReopenDialog open={reopenOpen} date={date} boxId={boxId} direct={me?.role === "admin"} onClose={() => setReopenOpen(false)} />
+      <DayDocument pdfRef={pdf.ref} date={date} boxId={boxId} report={report} record={record} methodName={methodName} />
     </div>
   );
 }
@@ -393,7 +409,7 @@ function EntriesTable({ report }: { report: DayReport }) {
   );
 }
 
-function CloseDialog({ open, date, report, onClose }: { open: boolean; date: string; report: DayReport; onClose: () => void }) {
+function CloseDialog({ open, date, boxId, report, onClose }: { open: boolean; date: string; boxId: string; report: DayReport; onClose: () => void }) {
   const [counted, setCounted] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -407,7 +423,7 @@ function CloseDialog({ open, date, report, onClose }: { open: boolean; date: str
       return;
     }
     setBusy(true);
-    if (closeCashDay(date, n, note)) {
+    if (closeCashDay(date, n, note, boxId)) {
       await flushPending();
       toast.success(`تم إقفال يوم ${dateLabel(date)}. اطبع التقرير ووقّعه.`);
       setCounted("");
@@ -423,7 +439,7 @@ function CloseDialog({ open, date, report, onClose }: { open: boolean; date: str
         <DialogHeader className="text-right sm:text-right">
           <DialogTitle>إقفال يوم {dateLabel(date)}</DialogTitle>
           <DialogDescription>
-            عدّ النقدية اللي في الخزينة واكتبها. بعد الإقفال لا يمكن إضافة أو تعديل أو حذف أي حركة خزينة بتاريخ اليوم ده أو قبله إلا بموافقة المدير المالي.
+            عدّ النقدية اللي في هذه الخزينة واكتبها. بعد الإقفال لا يمكن إضافة أو تعديل أو حذف أي حركة على نفس الخزينة بتاريخ اليوم ده أو قبله إلا بموافقة المدير المالي.
           </DialogDescription>
         </DialogHeader>
         <dl className="grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-3 text-sm">
@@ -464,12 +480,12 @@ function CloseDialog({ open, date, report, onClose }: { open: boolean; date: str
   );
 }
 
-function ReopenDialog({ open, date, direct, onClose }: { open: boolean; date: string; direct: boolean; onClose: () => void }) {
+function ReopenDialog({ open, date, boxId, direct, onClose }: { open: boolean; date: string; boxId: string; direct: boolean; onClose: () => void }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   async function confirm() {
     setBusy(true);
-    if (requestDayReopen(date, reason)) {
+    if (requestDayReopen(date, reason, boxId)) {
       await flushPending();
       toast.success(direct ? `تمت إعادة فتح يوم ${dateLabel(date)}.` : "تم إرسال الطلب للمدير المالي.");
       setReason("");
@@ -507,12 +523,14 @@ function ReopenDialog({ open, date, direct, onClose }: { open: boolean; date: st
 function DayDocument({
   pdfRef,
   date,
+  boxId,
   report,
   record,
   methodName,
 }: {
   pdfRef: RefObject<HTMLDivElement | null>;
   date: string;
+  boxId: string;
   report: DayReport;
   record: DailyClosing | undefined;
   methodName: (id: string) => string;
@@ -523,7 +541,7 @@ function DayDocument({
     <OfficialDocument
       ref={pdfRef}
       settings={db.settings}
-      title="تقرير الإقفال اليومي للخزينة الرئيسية"
+      title={`تقرير الإقفال اليومي — ${findBox(db, boxId).name}`}
       subtitle={`يوم ${dateLabel(date)} — ${record ? `مقفول بواسطة ${record.closedBy} في ${new Date(record.closedAt).toLocaleString("ar-EG")}` : "لم يُقفل بعد (نسخة للمراجعة)"}`}
       issuedOn={dateLabel(isoDate(new Date()))}
     >

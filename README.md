@@ -52,6 +52,17 @@ it once with `Trust-AlRahma.ps1` (or automatically through `install-service.ps1`
 - No public certificate authority is involved; Windows SmartScreen reputation is not
   granted outside the PCs that trust the root.
 
+## Treasuries, service prices and owner funding
+
+- Two cash treasuries: **Main** and **ICU**. ICU receipts go to the ICU treasury; every other
+  department goes to Main. ICU staff shifts select the ICU treasury automatically.
+- A service price is fixed from **Department Services** unless the service is flagged
+  **Variable Price**; only then can the price be typed on a receipt.
+- The owner can fund the ICU (or main) treasury from **Treasury → تمويل من صاحب المستشفى**.
+  It is owner current-account money, not revenue, and is not attributed to any collector.
+- Expenses and petty cash choose their treasury and cannot exceed its balance.
+- Daily closing is independent per treasury; a closed ICU day does not lock Main.
+
 ## Updates
 
 Bump the version in `package.json` and `src-tauri/Cargo.toml`, rebuild, then run

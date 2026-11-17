@@ -48,6 +48,7 @@ export const GROUPS: Record<string, { name: string; type: AccountType }> = {
   "2600": { name: "قروض وتمويل", type: "liability" },
   "3100": { name: "رأس المال والأرصدة الافتتاحية", type: "equity" },
   "3200": { name: "الأرباح المحتجزة وأرباح الفترة", type: "equity" },
+  "3300": { name: "جاري صاحب المستشفى", type: "equity" },
   "4100": { name: "إيرادات الخدمات الطبية", type: "revenue" },
   "4200": { name: "إيرادات أخرى", type: "revenue" },
   "4300": { name: "زيادة تقفيل الورديات", type: "revenue" },
@@ -260,7 +261,9 @@ export function buildJournal(db: DB, asOf: string): JournalEntry[] {
                 ? "2500"
                 : t.source === "shift"
                 ? "4300"
-                : "4200";
+                : t.source === "owner-funding"
+                  ? "3300"
+                  : "4200";
       lines = [dr(box, amt), cr(counter, amt, counter.startsWith("4") ? t.department : undefined)];
     } else {
       let counter: string;
