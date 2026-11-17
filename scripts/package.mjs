@@ -79,6 +79,11 @@ if (existsSync(join(root, "trust"))) {
   copy(join(root, "trust"), join(clientDir, "trust"));
 }
 if (existsSync(winsw)) copyFileSync(winsw, join(serverDir, "AlRahmaService.exe"));
+mkdirSync(join(serverDir, "tools"), { recursive: true });
+for (const name of ["reset-password.mjs", "reset-password.cmd"]) {
+  const p = join(root, "packaging", name);
+  if (existsSync(p)) copyFileSync(p, join(serverDir, "tools", name));
+}
 if (existsSync(join(root, "packaging", "Trust-AlRahma.ps1"))) {
   copyFileSync(join(root, "packaging", "Trust-AlRahma.ps1"), join(clientDir, "Trust-AlRahma.ps1"));
 }

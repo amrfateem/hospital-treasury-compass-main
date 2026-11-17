@@ -68,6 +68,19 @@ containing the server and public assets plus SHA-256 hashes. Copy the package co
 The update script verifies every payload hash and its Authenticode signature before touching
 the data. Previous folders stay as `server.old-<version>` and `public.old-<version>`.
 
+## Password recovery
+
+On the server PC, without stopping the service:
+
+```powershell
+cd <app>
+.\node.exe tools\reset-password.mjs --list
+.\node.exe tools\reset-password.mjs --user director --password "new-password"
+```
+
+The tool updates the same scrypt hash and clears that user's sessions. The Windows shortcut
+`tools\reset-password.cmd` prompts for both values.
+
 ## Notes
 
 - The server PC must keep the USB plugged in while staff are working.
