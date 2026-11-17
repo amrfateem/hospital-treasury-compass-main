@@ -64,6 +64,7 @@ import { can, type PermActor, type Section } from "@/lib/hospital/permissions";
 import { approvableCount } from "@/lib/hospital/approvals";
 import { cn } from "@/lib/utils";
 import { NotificationsBell, NotificationsPanel } from "@/components/hospital/notifications/NotificationsPanel";
+import { ServerAddress } from "@/components/hospital/ServerAddress";
 
 type NavPath =
   | "/"
@@ -470,6 +471,7 @@ export function AppShell({ children, onSignOut }: { children: ReactNode; onSignO
           <span className="flex-1 truncate font-display font-bold text-sidebar-accent-foreground">
             {HOSPITAL.name}
           </span>
+          <ServerAddress compact className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
           <SyncBadge compact />
           <NotificationsBell
             onOpen={openNotifications}
@@ -481,6 +483,7 @@ export function AppShell({ children, onSignOut }: { children: ReactNode; onSignO
             <current.icon className="size-4" />
           </span>
           <span className="flex-1 truncate text-sm font-semibold text-foreground">{current.label}</span>
+          <ServerAddress />
           <SyncBadge />
           <span className="h-5 w-px bg-border" />
           <span className="text-xs font-medium text-muted-foreground">{me.name}</span>

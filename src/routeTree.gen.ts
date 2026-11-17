@@ -46,6 +46,7 @@ import { Route as AuthenticatedStockRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedSupplierAccountsRouteImport } from './routes/_authenticated/supplier-accounts'
 import { Route as AuthenticatedSuppliersRouteImport } from './routes/_authenticated/suppliers'
 import { Route as AuthenticatedTreasuryRouteImport } from './routes/_authenticated/treasury'
+import { Route as ApiAddressesRouteImport } from './routes/api/addresses'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiPingRouteImport } from './routes/api/ping'
 import { Route as ApiUploadRouteImport } from './routes/api/upload'
@@ -243,6 +244,11 @@ const AuthenticatedTreasuryRoute = AuthenticatedTreasuryRouteImport.update({
   path: '/treasury',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiAddressesRoute = ApiAddressesRouteImport.update({
+  id: '/api/addresses',
+  path: '/api/addresses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
@@ -301,6 +307,7 @@ export interface FileRoutesByFullPath {
   '/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/suppliers': typeof AuthenticatedSuppliersRoute
   '/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
@@ -342,6 +349,7 @@ export interface FileRoutesByTo {
   '/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/suppliers': typeof AuthenticatedSuppliersRoute
   '/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
@@ -386,6 +394,7 @@ export interface FileRoutesById {
   '/_authenticated/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/_authenticated/suppliers': typeof AuthenticatedSuppliersRoute
   '/_authenticated/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
@@ -431,6 +440,7 @@ export interface FileRouteTypes {
     | '/supplier-accounts'
     | '/suppliers'
     | '/treasury'
+    | '/api/addresses'
     | '/api/health'
     | '/api/ping'
     | '/api/upload'
@@ -472,6 +482,7 @@ export interface FileRouteTypes {
     | '/supplier-accounts'
     | '/suppliers'
     | '/treasury'
+    | '/api/addresses'
     | '/api/health'
     | '/api/ping'
     | '/api/upload'
@@ -515,6 +526,7 @@ export interface FileRouteTypes {
     | '/_authenticated/supplier-accounts'
     | '/_authenticated/suppliers'
     | '/_authenticated/treasury'
+    | '/api/addresses'
     | '/api/health'
     | '/api/ping'
     | '/api/upload'
@@ -525,6 +537,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiAddressesRoute: typeof ApiAddressesRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiPingRoute: typeof ApiPingRoute
   ApiUploadRoute: typeof ApiUploadRoute
@@ -792,6 +805,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTreasuryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/addresses': {
+      id: '/api/addresses'
+      path: '/api/addresses'
+      fullPath: '/api/addresses'
+      preLoaderRoute: typeof ApiAddressesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
@@ -905,6 +925,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiAddressesRoute: ApiAddressesRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiPingRoute: ApiPingRoute,
   ApiUploadRoute: ApiUploadRoute,

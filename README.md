@@ -38,7 +38,8 @@ target PCs do not depend on a host runtime. Set `NO_WEBVIEW2=1` to skip it durin
 
 1. Copy `release/AlRahmaHospital` to the USB drive.
 2. Run `AlRahmaHospital.exe` on the server PC; create the first director account.
-3. Open `http://alrahma.local` from a client PC.
+3. Open `http://alrahma.local` from a client PC. After signing in, the top bar shows this
+   address with a copy button, plus the server's LAN IP to use when multicast is blocked.
 4. Optional unattended mode: right-click `install-service.ps1` → *Run as administrator*.
    This installs the headless server as a Windows service, adds the firewall rules, trusts
    the internal signing root, and registers the nightly update task.
