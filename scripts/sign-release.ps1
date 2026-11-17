@@ -17,6 +17,9 @@ $files = @(
 )
 $updateScript = Get-ChildItem (Join-Path $ReleaseDir "updates") -Recurse -Filter "apply-update.ps1" -ErrorAction SilentlyContinue
 foreach ($s in $updateScript) { $files += $s.FullName }
+$files += Get-ChildItem (Join-Path $ReleaseDir "AlRahmaHospital") -Filter "*.ps1" -File | ForEach-Object { $_.FullName }
+$clientTrust = Join-Path $ReleaseDir "AlRahmaHospital-client\Trust-AlRahma.ps1"
+if (Test-Path $clientTrust) { $files += $clientTrust }
 
 foreach ($file in $files) {
   if (-not (Test-Path $file)) { continue }
