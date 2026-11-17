@@ -83,11 +83,9 @@ export function findProfileByUsername(username: string): ProfileRow | undefined 
 }
 
 export function countAdmins(): number {
-  const row = get<{ n: number }>(
-    `SELECT COUNT(*) AS n
-       FROM user_roles r JOIN profiles p ON p.id = r.user_id
-      WHERE r.role = 'admin' AND p.active = 1`,
-  );
+  // Every owner account (active or stopped) counts: a stopped account must never reopen
+  // the one-time setup form for anyone else on the network.
+  const row = get<{ n: number }>("SELECT COUNT(*) AS n FROM user_roles WHERE role = 'admin'");
   return Number(row?.n ?? 0);
 }
 
@@ -154,6 +152,13 @@ export interface NewAccount {
 
 export function insertAccount(account: NewAccount): void {
   transaction(() => {
+    // One owner per installation. This check sits inside the write lock so two setup
+    // requests racing from different devices cannot both create an admin account.
+    if (account.role === "admin") {
+      const existing = get<{ n: number }>("SELECT COUNT(*) AS n FROM user_roles WHERE role = 'admin'");
+      if (Number(existing?.n ?? 0) > 0)
+        throw new Error("يوجد حساب مدير بالفعل — لا يمكن إنشاء أكثر من حساب مدير واحد.");
+    }
     run(
       `INSERT INTO profiles (id, username, full_name, box_id, active, permissions, controls, password_hash, created_at)
        VALUES (?, ?, ?, NULL, 1, ?, ?, ?, ?)`,

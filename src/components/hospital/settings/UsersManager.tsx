@@ -64,15 +64,26 @@ const ROLE_HINTS: Record<Role, string> = {
 };
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "حدث خطأ، حاول مرة أخرى.");
 
-function RoleSelect({ value, onChange }: { value: Role; onChange: (r: Role) => void }) {
+function RoleSelect({
+  value,
+  onChange,
+  allowAdmin = false,
+  locked = false,
+}: {
+  value: Role;
+  onChange: (r: Role) => void;
+  /** The owner account: admin can only be chosen here, never for a new staff member. */
+  allowAdmin?: boolean;
+  locked?: boolean;
+}) {
   return (
     <div className="grid gap-1.5">
-      <Select value={value} onValueChange={(v) => onChange(v as Role)}>
+      <Select value={value} onValueChange={(v) => onChange(v as Role)} disabled={locked}>
         <SelectTrigger aria-label="الدور">
           <SelectValue />
         </SelectTrigger>
         <SelectContent dir="rtl">
-          {ROLES.map((r) => (
+          {ROLES.filter((r) => allowAdmin || r !== "admin").map((r) => (
             <SelectItem key={r} value={r}>
               {ROLE_LABELS[r]}
             </SelectItem>
@@ -297,6 +308,7 @@ function StaffDialog({
   onSave: (d: Draft) => Promise<void>;
 }) {
   const isNew = value === "new";
+  const isAdminAccount = !!value && value !== "new" && value.role === "admin";
   const [d, setD] = useState<Draft>({
     username: "",
     fullName: "",
@@ -413,6 +425,8 @@ function StaffDialog({
           <FieldRow label="الوظيفة">
             <RoleSelect
               value={d.role}
+              allowAdmin={isAdminAccount}
+              locked={isAdminAccount}
               onChange={(role) => setD({ ...d, role, perms: levelsFor(role) })}
             />
           </FieldRow>

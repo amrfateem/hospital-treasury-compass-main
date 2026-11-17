@@ -51,6 +51,8 @@ function createAccount(i: {
 }) {
   const username = normalizeUsername(i.username);
   if (findProfileByUsername(username)) throw new Error("اسم المستخدم مستخدم بالفعل.");
+  if (i.role === "admin" && countAdmins() > 0)
+    throw new Error("يوجد حساب مدير بالفعل — لا يمكن إنشاء أكثر من حساب مدير واحد.");
   const id = crypto.randomUUID();
   insertAccount({
     id,
@@ -115,6 +117,8 @@ export function createStaff(
   },
 ) {
   requireAdmin(me);
+  if (data.role === "admin")
+    throw new Error("حساب المدير يُنشأ مرة واحدة فقط عند أول تشغيل. أضف موظفًا بدور آخر.");
   createAccount(data);
 }
 
@@ -125,7 +129,12 @@ export function updateStaff(
   requireAdmin(me);
   if (data.id === me.id && (data.role !== "admin" || !data.active))
     throw new Error("لا يمكنك إلغاء صلاحية المدير أو إيقاف حسابك أنت.");
-  if (!get("SELECT id FROM profiles WHERE id = ?", data.id)) throw new Error("الحساب غير موجود.");
+  const current = get<{ role: string }>("SELECT role FROM user_roles WHERE user_id = ?", data.id);
+  if (!current) throw new Error("الحساب غير موجود.");
+  if (current.role === "admin" && (data.role !== "admin" || !data.active))
+    throw new Error("لا يمكن تغيير دور حساب المدير أو إيقافه — هو الحساب الوحيد لإدارة النظام.");
+  if (current.role !== "admin" && data.role === "admin")
+    throw new Error("يوجد حساب مدير بالفعل — لا يمكن إنشاء أكثر من حساب مدير واحد.");
   transaction(() => {
     run(
       "UPDATE profiles SET full_name = ?, box_id = NULL, active = ?, controls = ? WHERE id = ?",
@@ -150,6 +159,9 @@ export function setStaffPassword(me: Me, data: { id: string; password: string })
 export function deleteStaff(me: Me, id: string) {
   requireAdmin(me);
   if (id === me.id) throw new Error("لا يمكنك حذف حسابك أنت.");
+  const role = get<{ role: string }>("SELECT role FROM user_roles WHERE user_id = ?", id);
+  if (role?.role === "admin")
+    throw new Error("لا يمكن حذف حساب المدير. استخدم أداة إعادة تعيين كلمة المرور لو فقدت الدخول.");
   run("DELETE FROM profiles WHERE id = ?", id);
 }
 

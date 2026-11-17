@@ -198,6 +198,13 @@ export function db(): DatabaseSync {
   d.exec("PRAGMA foreign_keys = ON");
   d.exec("PRAGMA busy_timeout = 8000");
   d.exec(SCHEMA);
+  try {
+    // One owner account per installation, even if a script writes to the database directly.
+    // Old databases with two admins keep working; the app checks still refuse new ones.
+    d.exec("CREATE UNIQUE INDEX IF NOT EXISTS one_admin_role ON user_roles(role) WHERE role = 'admin'");
+  } catch (e) {
+    console.warn("[alrahma] could not enforce a single admin role:", e);
+  }
   database = d;
   return d;
 }

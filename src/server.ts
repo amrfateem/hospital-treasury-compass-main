@@ -50,6 +50,21 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+/** Basic browser hardening for every response (the LAN app has no CDN in front of it). */
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  if (!headers.has("x-content-type-options")) headers.set("x-content-type-options", "nosniff");
+  if (!headers.has("x-frame-options")) headers.set("x-frame-options", "SAMEORIGIN");
+  if (!headers.has("referrer-policy")) headers.set("referrer-policy", "same-origin");
+  if (!headers.has("permissions-policy"))
+    headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Hosting compresses every response at the edge. Never compress a body (gzip, brotli,
 // CompressionStream) or set content-encoding here or in a server route: the body gets encoded
 // twice and renders garbled.
@@ -58,7 +73,7 @@ export default {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

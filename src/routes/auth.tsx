@@ -66,12 +66,15 @@ function AuthPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const [setup, setSetup] = useState(false);
+  /** True only after the server confirms no owner account exists yet. */
+  const [canSetup, setCanSetup] = useState(false);
   const [offline, setOffline] = useState(false);
   useEffect(() => {
     let alive = true;
     void setupStatusWithRetry().then((r) => {
       if (!alive) return;
       setSetup(!!r.needsSetup);
+      setCanSetup(r.needsSetup === true);
       setOffline(r.needsSetup === null);
     });
     return () => {
@@ -85,6 +88,7 @@ function AuthPage() {
       void setupStatusWithRetry(1).then((r) => {
         if (r.needsSetup === null) return;
         setSetup(r.needsSetup);
+        setCanSetup(r.needsSetup);
         setOffline(false);
       });
     }, 4000);
@@ -117,7 +121,10 @@ function AuthPage() {
     const check = () => {
       void getSetupStatus()
         .then((r) => {
-          if (r.needsSetup === false) setSetup(false);
+          if (r.needsSetup === false) {
+            setSetup(false);
+            setCanSetup(false);
+          }
         })
         .catch(() => {});
     };
@@ -166,6 +173,7 @@ function AuthPage() {
       if (setup) {
         await createFirstAdmin({ data: { username: u, fullName: fullName.trim(), password } });
         setSetup(false);
+        setCanSetup(false);
       }
       await signIn(u, password);
     } catch (err) {
@@ -176,6 +184,7 @@ function AuthPage() {
       const alreadySetUp = setup && /إعداد حساب المدير|already|سجّل الدخول/i.test(message);
       if (alreadySetUp) {
         setSetup(false);
+        setCanSetup(false);
         setError("تم إعداد حساب المدير بالفعل. اكتب اسم المستخدم وكلمة المرور ثم اضغط دخول.");
       } else {
         setError(
@@ -317,16 +326,18 @@ function AuthPage() {
           ) : (
             <div className="space-y-1 text-center text-[11px] text-muted-foreground">
               <p>نسيت كلمة المرور؟ اطلب من مدير النظام تعيين كلمة جديدة.</p>
-              <button
-                type="button"
-                className="font-semibold text-primary underline-offset-4 hover:underline"
-                onClick={() => {
-                  setSetup(true);
-                  setError("");
-                }}
-              >
-                أول مرة على النظام؟ إعداد حساب المدير
-              </button>
+              {canSetup && (
+                <button
+                  type="button"
+                  className="font-semibold text-primary underline-offset-4 hover:underline"
+                  onClick={() => {
+                    setSetup(true);
+                    setError("");
+                  }}
+                >
+                  أول مرة على النظام؟ إعداد حساب المدير
+                </button>
+              )}
             </div>
           )}
         </form>
