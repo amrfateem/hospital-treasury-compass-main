@@ -149,7 +149,7 @@ function AuthPage() {
       const network = err instanceof TypeError && /fetch/i.test(err.message);
       setError(
         network
-          ? "تعذّر الاتصال بالسيرفر — تأكد من الإنترنت وحاول مرة أخرى."
+          ? "تعذّر الاتصال بسيرفر المستشفى — تأكد من الشبكة وحاول مرة أخرى."
           : err instanceof Error
             ? err.message
             : "حدث خطأ، حاول مرة أخرى.",

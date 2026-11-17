@@ -480,7 +480,7 @@ async function resumeOutbox() {
   set({ db });
   outbox.push(...fresh);
   pending = outbox.length;
-  toast.info(`جارٍ إرسال ${fresh.length} عملية محفوظة على هذا الجهاز ولم تصل للسحابة بعد.`);
+  toast.info(`جارٍ إرسال ${fresh.length} عملية محفوظة على هذا الجهاز ولم تصل للسيرفر بعد.`);
   setSync("saving");
   void flush();
 }

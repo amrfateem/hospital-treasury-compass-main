@@ -32,7 +32,7 @@ export function RestorePoints() {
   async function restore() {
     if (!day) return;
     if (unsentCount() > 0) {
-      toast.error("انتظر حتى تصل كل التغييرات على هذا الجهاز للسحابة ثم أعد المحاولة.");
+      toast.error("انتظر حتى تصل كل التغييرات على هذا الجهاز للسيرفر ثم أعد المحاولة.");
       return;
     }
     setBusy(true);

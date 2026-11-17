@@ -66,7 +66,7 @@ export function ResetPanel() {
       <section className="ledger-card p-5">
         <h2 className="text-xl font-bold">النسخ الاحتياطي</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          البيانات محفوظة على السحابة وتظهر لحظيًا على كل الأجهزة. نزّل نسخة احتياطية دورية وقبل أي تصفير.
+          البيانات محفوظة على سيرفر المستشفى وتظهر لحظيًا على كل الأجهزة. نزّل نسخة احتياطية دورية وقبل أي تصفير.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={download}>
