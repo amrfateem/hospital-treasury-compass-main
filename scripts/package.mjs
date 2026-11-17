@@ -82,8 +82,9 @@ if (existsSync(winsw)) copyFileSync(winsw, join(serverDir, "AlRahmaService.exe")
 if (existsSync(join(root, "packaging", "Trust-AlRahma.ps1"))) {
   copyFileSync(join(root, "packaging", "Trust-AlRahma.ps1"), join(clientDir, "Trust-AlRahma.ps1"));
 }
-if (existsSync(join(root, "packaging", "README-AR.txt"))) {
-  copyFileSync(join(root, "packaging", "README-AR.txt"), join(clientDir, "README-AR.txt"));
+const clientReadme = join(root, "packaging", "README-CLIENT-AR.txt");
+if (existsSync(clientReadme)) {
+  copyFileSync(clientReadme, join(clientDir, "README-AR.txt"));
 }
 
 writeFileSync(
