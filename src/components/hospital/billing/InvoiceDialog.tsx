@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DeptSelect, FieldRow, matches } from "@/components/hospital/kit";
-import { boxForDepartment, findBox } from "@/lib/hospital/model";
+import { isBank, boxForDepartment, findBox } from "@/lib/hospital/model";
+import { isDeskRole } from "@/lib/hospital/permissions";
 import { CLINICAL_GROUPS, findDepartment } from "@/lib/hospital/constants";
 import {
   deskOf,
@@ -39,6 +40,7 @@ import {
   savePatientInvoice,
   useCan,
   useHospitalDB,
+  useHospitalSession,
   type PatientInvoice,
   type ServiceItem,
   type ServiceKind,
@@ -68,8 +70,11 @@ export function InvoiceDialog({
   onSaved: (inv: PatientInvoice, isEdit: boolean) => void;
 }) {
   const db = useHospitalDB();
+  const { me } = useHospitalSession();
   const { lists, departments, doctors } = db;
   const canManual = useCan("settings", "edit");
+  const picksBank = !!me && !isDeskRole(me.role);
+  const [bankId, setBankId] = useState("");
   const [deskKey, setDeskKey] = useState<ReceiptDeskKey>(defaultDesk);
   /** "Other departments" desk: empty until the user picks the department. */
   const [otherDept, setOtherDept] = useState("");
@@ -130,6 +135,7 @@ export function InvoiceDialog({
     setPaid(ownRest ? String(invoiceAmounts(invoice!).paidNow) : "");
     setDate(invoice?.date ?? isoDate(new Date()));
     setPaymentMethod(invoice?.paymentMethod ?? lists.paymentMethods[0]?.id ?? "cash");
+    setBankId(invoice?.boxId && db.cashboxes.find((b) => b.id === invoice.boxId && isBank(b)) ? invoice.boxId : "");
     setItems(
       invoice?.items.length
         ? invoice.items.map((i) => ({
@@ -415,6 +421,7 @@ export function InvoiceDialog({
         items: valid,
         discount: Number(discount) || 0,
         paymentMethod,
+        ...(bankId ? { boxId: bankId } : {}),
         notes: notes.trim() || undefined,
         kind: desk.stay ? "inpatient" : "outpatient",
         stay: stayInput ? { ...stayInput, room: stay.room.trim() || undefined } : undefined,
@@ -634,6 +641,25 @@ export function InvoiceDialog({
                   </span>
                 </div>
               </FieldRow>
+              {picksBank && department !== "icu" && db.cashboxes.some((b) => isBank(b) && b.active) && (
+                <FieldRow label="حساب بنكي بدل النقدية (اختياري)">
+                  <Select value={bankId || "__none"} onValueChange={(v) => setBankId(v === "__none" ? "" : v)}>
+                    <SelectTrigger aria-label="حساب بنكي">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent dir="rtl">
+                      <SelectItem value="__none">بدون — الخزينة النقدية</SelectItem>
+                      {db.cashboxes
+                        .filter((b) => isBank(b) && b.active)
+                        .map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
+              )}
             </div>
 
             {desk.stay && (

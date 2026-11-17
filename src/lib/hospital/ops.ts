@@ -768,7 +768,8 @@ export const OPS = {
       // Accountants may still route a receipt to a bank account; desk staff may not.
       let boxId = invoiceBox(db, input.department);
       const requestedBox = input.boxId ? db.cashboxes.find((b) => b.id === input.boxId) : undefined;
-      if (!isDeskRole(ctx.actor.role) && requestedBox?.kind === "bank") boxId = requestedBox.id;
+      if (!isDeskRole(ctx.actor.role) && input.department !== "icu" && requestedBox?.kind === "bank")
+        boxId = requestedBox.id;
       const items = normalizeInvoiceItems(db, input.department, input.clinicId, input.items ?? [], ctx);
       const normalized = { ...input, items };
       const shift = existing ? existing.shiftId : openShiftOf(db, ctx.actor.id)?.id;

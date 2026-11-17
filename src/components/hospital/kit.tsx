@@ -371,6 +371,7 @@ export function BoxSelect({
   onChange,
   allowAll = false,
   cashOnly = false,
+  banksOnly = false,
   className,
   label = "الخزينة",
 }: {
@@ -378,12 +379,16 @@ export function BoxSelect({
   onChange: (v: string) => void;
   allowAll?: boolean;
   cashOnly?: boolean;
+  banksOnly?: boolean;
   className?: string;
   label?: string;
 }) {
   const { cashboxes } = useHospitalDB();
   const visible = cashboxes.filter(
-    (b) => (b.active || b.id === value) && (!cashOnly || b.kind !== "bank"),
+    (b) =>
+      (b.active || b.id === value) &&
+      (!cashOnly || b.kind !== "bank") &&
+      (!banksOnly || b.kind === "bank"),
   );
   return (
     <Select value={value} onValueChange={onChange}>
