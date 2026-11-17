@@ -5,20 +5,10 @@
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
-@import "@fontsource/cairo/400.css";
-@import "@fontsource/cairo/500.css";
-@import "@fontsource/cairo/600.css";
-@import "@fontsource/cairo/700.css";
-@import "@fontsource/cairo/800.css";
-@import "@fontsource/el-messiri/600.css";
-@import "@fontsource/el-messiri/700.css";
-@import "@fontsource/ibm-plex-sans-arabic/400.css";
-@import "@fontsource/ibm-plex-sans-arabic/500.css";
-@import "@fontsource/ibm-plex-sans-arabic/600.css";
-@import "@fontsource/ibm-plex-sans-arabic/700.css";
-@import "@fontsource/readex-pro/500.css";
-@import "@fontsource/readex-pro/600.css";
-@import "@fontsource/readex-pro/700.css";
+@import "@fontsource/tajawal/400.css";
+@import "@fontsource/tajawal/500.css";
+@import "@fontsource/tajawal/700.css";
+@import "@fontsource/tajawal/800.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -28,8 +18,8 @@
  */
 
 @theme inline {
-  --font-sans: "IBM Plex Sans Arabic", "Cairo", system-ui, sans-serif;
-  --font-display: "Readex Pro", "IBM Plex Sans Arabic", sans-serif;
+  --font-sans: "Tajawal", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Tajawal", "Segoe UI", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -416,7 +406,7 @@
 /* ---------- Official document (rendered off-screen, captured to PDF) ---------- */
 .official-doc {
   direction: rtl;
-  font-family: "Cairo", sans-serif;
+  font-family: "Tajawal", sans-serif;
   color: var(--doc-ink);
   background: oklch(1 0 0);
   padding: 28px 32px;
@@ -492,9 +482,21 @@
 
 /* ---------- Clinical modern: shared surfaces ---------- */
 @layer base {
+  html {
+    /* Keep the page scrollbar in place when Radix locks scrolling for a menu/dialog. */
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
   body {
     background-image: var(--gradient-canvas);
     background-attachment: fixed;
+  }
+  /* Radix adds this while a menu/dialog is open; the gutter already reserves the space. */
+  body[data-scroll-locked] {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    padding-right: 0 !important;
+    padding-left: 0 !important;
   }
   ::selection {
     background-color: color-mix(in oklab, var(--color-primary) 22%, transparent);

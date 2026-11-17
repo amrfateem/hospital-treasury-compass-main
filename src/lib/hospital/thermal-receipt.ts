@@ -4,6 +4,8 @@
  * shapes Arabic correctly and the cashier only picks the receipt printer once.
  * thermalReceiptHtml() is pure (covered by thermal-receipt.test.ts).
  */
+import tajawal400 from "@fontsource/tajawal/files/tajawal-arabic-400-normal.woff2?url";
+import tajawal700 from "@fontsource/tajawal/files/tajawal-arabic-700-normal.woff2?url";
 import { HOSPITAL } from "./constants";
 import { invoiceAmounts } from "./finance";
 import { dateLabel, int, money } from "./format";
@@ -124,12 +126,13 @@ export function thermalReceiptHtml(
   const narrow = opts.width === 58;
   return `<!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>إيصال ${esc(inv.number)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800&display=swap">
 <style>
+@font-face { font-family: Tajawal; font-style: normal; font-weight: 400; src: url(${tajawal400}) format("woff2"); font-display: swap; }
+@font-face { font-family: Tajawal; font-style: normal; font-weight: 700; src: url(${tajawal700}) format("woff2"); font-display: swap; }
 @page { size: ${opts.width}mm auto; margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-body { width: ${opts.width}mm; font-family: Cairo, Tahoma, Arial, sans-serif; font-size: ${narrow ? 10.5 : 12}px; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { width: ${opts.width}mm; font-family: Tajawal, Tahoma, Arial, sans-serif; font-size: ${narrow ? 10.5 : 12}px; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .slip { padding: 2mm ${narrow ? 2 : 4}mm 4mm; break-after: page; }
 .slip:last-child { break-after: auto; }
 header { text-align: center; border-top: 3px solid #000; border-bottom: 1px solid #000; padding: 8px 0; margin-bottom: 9px; }
@@ -177,7 +180,7 @@ export function printHtml(html: string): Promise<void> {
       if (!win || !doc) return resolve();
       const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
       try {
-        await Promise.race([doc.fonts.load("700 12px Cairo").then(() => doc.fonts.ready), wait(2500)]);
+        await Promise.race([doc.fonts.load("700 12px Tajawal").then(() => doc.fonts.ready), wait(2500)]);
       } catch {
         /* print with the fallback font */
       }

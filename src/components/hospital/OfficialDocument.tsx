@@ -47,7 +47,7 @@ export const OfficialDocument = forwardRef<
           <div>
             <div
               style={{
-                fontFamily: "'El Messiri', 'Cairo', serif",
+                fontFamily: "'Tajawal', 'Segoe UI', serif",
                 fontSize: compact ? 23 : 30,
                 fontWeight: 700,
                 color: "var(--doc-teal)",
