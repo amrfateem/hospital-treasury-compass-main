@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { HeartPulse, Loader2, LogIn, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,6 +96,11 @@ function AuthPage() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     void getSession().then(({ user }) => {
@@ -105,6 +110,24 @@ function AuthPage() {
       }
     });
   }, [navigate, redirect]);
+
+  // If another tab/device creates the owner while this setup form is open, move to login.
+  useEffect(() => {
+    if (!setup) return;
+    const check = () => {
+      void getSetupStatus()
+        .then((r) => {
+          if (r.needsSetup === false) setSetup(false);
+        })
+        .catch(() => {});
+    };
+    const timer = setInterval(check, 5000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, [setup]);
 
   async function signIn(u: string, p: string) {
     for (let attempt = 0; ; attempt++) {
@@ -147,13 +170,20 @@ function AuthPage() {
       await signIn(u, password);
     } catch (err) {
       const network = err instanceof TypeError && /fetch/i.test(err.message);
-      setError(
-        network
-          ? "تعذّر الاتصال بسيرفر المستشفى — تأكد من الشبكة وحاول مرة أخرى."
-          : err instanceof Error
-            ? err.message
-            : "حدث خطأ، حاول مرة أخرى.",
-      );
+      const message = err instanceof Error ? err.message : "حدث خطأ، حاول مرة أخرى.";
+      // Another device may have created the owner account while this form was open.
+      // Never leave the setup form stuck with no way to reach the login form.
+      const alreadySetUp = setup && /إعداد حساب المدير|already|سجّل الدخول/i.test(message);
+      if (alreadySetUp) {
+        setSetup(false);
+        setError("تم إعداد حساب المدير بالفعل. اكتب اسم المستخدم وكلمة المرور ثم اضغط دخول.");
+      } else {
+        setError(
+          network
+            ? "تعذّر الاتصال بسيرفر المستشفى — تأكد من الشبكة وحاول مرة أخرى."
+            : message,
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -208,7 +238,12 @@ function AuthPage() {
           {setup && (
             <div className="grid gap-1.5">
               <Label htmlFor="a-name">الاسم بالكامل</Label>
-              <Input id="a-name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+              <Input
+                id="a-name"
+                autoFocus
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
             </div>
           )}
           <div className="grid gap-1.5">
@@ -218,6 +253,7 @@ function AuthPage() {
               dir="ltr"
               autoComplete="username"
               autoCapitalize="none"
+              autoFocus={!setup}
               placeholder="مثال: sami"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -252,15 +288,46 @@ function AuthPage() {
               الاتصال بالسيرفر ضعيف دلوقتي — بنحاول تاني تلقائيًا. تقدر تكتب بياناتك وتضغط دخول.
             </p>
           )}
-          {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+          {error && (
+            <p
+              ref={errorRef}
+              role="alert"
+              aria-live="polite"
+              tabIndex={-1}
+              className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive outline-none"
+            >
+              {error}
+            </p>
+          )}
           <Button type="submit" className="w-full" disabled={busy}>
             {busy ? <Loader2 className="animate-spin" /> : setup ? <ShieldCheck /> : <LogIn />}
             {setup ? "إنشاء حساب المدير والدخول" : "دخول"}
           </Button>
-          {!setup && (
-            <p className="text-center text-[11px] text-muted-foreground">
-              نسيت كلمة المرور؟ اطلب من مدير النظام تعيين كلمة جديدة.
-            </p>
+          {setup ? (
+            <button
+              type="button"
+              className="w-full text-center text-xs font-semibold text-primary underline-offset-4 hover:underline"
+              onClick={() => {
+                setSetup(false);
+                setError("");
+              }}
+            >
+              الحساب موجود بالفعل؟ تسجيل الدخول
+            </button>
+          ) : (
+            <div className="space-y-1 text-center text-[11px] text-muted-foreground">
+              <p>نسيت كلمة المرور؟ اطلب من مدير النظام تعيين كلمة جديدة.</p>
+              <button
+                type="button"
+                className="font-semibold text-primary underline-offset-4 hover:underline"
+                onClick={() => {
+                  setSetup(true);
+                  setError("");
+                }}
+              >
+                أول مرة على النظام؟ إعداد حساب المدير
+              </button>
+            </div>
           )}
         </form>
       </main>

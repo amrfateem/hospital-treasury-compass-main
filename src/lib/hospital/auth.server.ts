@@ -84,7 +84,9 @@ export function findProfileByUsername(username: string): ProfileRow | undefined 
 
 export function countAdmins(): number {
   const row = get<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM user_roles WHERE role = 'admin'",
+    `SELECT COUNT(*) AS n
+       FROM user_roles r JOIN profiles p ON p.id = r.user_id
+      WHERE r.role = 'admin' AND p.active = 1`,
   );
   return Number(row?.n ?? 0);
 }
