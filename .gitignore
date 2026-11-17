@@ -39,3 +39,5 @@ signing/*.pfx
 *.njsproj
 *.sln
 *.sw?
+.auth-flow.png
+.staff-flow.png
