@@ -9,6 +9,9 @@ system. It runs from a USB drive on the hospital LAN as `http://alrahma.local` (
   WebView2, SQLite data, daily backups, local accounts.
 - **Client PCs**: `release/AlRahmaHospital-client` — the same Tauri shell with
   `client.json` pointing at `http://alrahma.local`; no database or Node sidecar.
+- **Slim build**: uses the Windows Edge WebView2 that ships with Windows 10/11
+  (server ~115 MB, client ~5 MB). If a PC lacks WebView2, install the official
+  Microsoft Edge WebView2 Runtime once.
 - **Updates**: `release/updates/<version>` — a signed offline update package.
 
 Data lives in `<app>\data`; backups are written daily to `<app>\Backups` and to
