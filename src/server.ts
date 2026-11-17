@@ -6,7 +6,7 @@ import { renderErrorPage } from "./lib/error-page";
 if (process.env["ALRAHMA_APP"] === "1") {
   void import("./lib/local/runtime.server")
     .then((m) => m.initRuntime())
-    .catch((e) => console.error("[alrahama] runtime init failed", e));
+    .catch((e) => console.error("[alrahma] runtime init failed", e));
 }
 
 type ServerEntry = {

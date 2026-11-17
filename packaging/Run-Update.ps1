@@ -13,6 +13,17 @@ function Log([string]$text) {
 try {
   if (-not (Test-Path $pathFile)) { Log "app-path.txt missing"; exit 0 }
   $app = (Get-Content $pathFile -Raw).Trim()
+  if (-not (Test-Path (Join-Path $app "AlRahmaHospital.exe"))) {
+    Log "stored app path is missing; searching drives"
+    $found = Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object {
+      Join-Path $_.Root "AlRahmaHospital"
+    } | Where-Object { Test-Path (Join-Path $_ "AlRahmaHospital.exe") } | Select-Object -First 1
+    if ($found) {
+      $app = $found
+      $app | Set-Content -Path $pathFile -Encoding UTF8
+      Log "found application at $app"
+    }
+  }
   $script = Join-Path $app "Updates\apply-update.ps1"
   if (-not (Test-Path $script)) { exit 0 }
   $sig = Get-AuthenticodeSignature -FilePath $script
