@@ -54,8 +54,10 @@ it once with `Trust-AlRahma.ps1` (or automatically through `install-service.ps1`
 
 ## Updates
 
-`node scripts/make-update.mjs` builds a signed package containing the server and public
-assets plus SHA-256 hashes. Copy the package contents into `<app>\Updates`:
+Bump the version in `package.json` and `src-tauri/Cargo.toml`, rebuild, then run
+`node scripts/make-update.mjs` (or set `UPDATE_VERSION`). It builds a signed package
+containing the server and public assets plus SHA-256 hashes. Copy the package contents into
+`<app>\Updates`:
 
 - **Service mode**: the SYSTEM task applies it at 3 AM or on next boot, backs up the
   database first, switches `server`/`public` atomically, and rolls back if the health check

@@ -11,6 +11,11 @@ $NodeExe = Join-Path $AppDir "node.exe"
 $ServerEntry = Join-Path $AppDir "server\index.mjs"
 $BackupDir = Join-Path $env:PUBLIC "Documents\AlRahmaHospitalBackups\$env:COMPUTERNAME"
 $RootCert = Join-Path $AppDir "trust\AlRahmaRoot.cer"
+$Version = "0.1.0"
+$VersionFile = Join-Path $AppDir "version.txt"
+if (Test-Path $VersionFile) {
+  $Version = ((Get-Content $VersionFile -Raw).Trim() -replace '^version=', '')
+}
 
 if (-not (Test-Path $WinswSource)) { throw "AlRahmaService.exe is missing. Run this from the application folder." }
 if (-not (Test-Path $NodeExe)) { throw "node.exe is missing. Run this from the application folder." }
@@ -37,7 +42,7 @@ $xml = @"
   <env name="ALRAHMA_MDNS" value="1"/>
   <env name="ALRAHMA_DATA_DIR" value="$(XmlEsc (Join-Path $AppDir 'data'))"/>
   <env name="ALRAHMA_BACKUP_DIR" value="$(XmlEsc $BackupDir)"/>
-  <env name="ALRAHMA_VERSION" value="0.1.0"/>
+  <env name="ALRAHMA_VERSION" value="$(XmlEsc $Version)"/>
   <logpath>$(XmlEsc (Join-Path $AppDir 'data\logs'))</logpath>
   <log mode="roll-by-size"/>
   <onfailure action="restart" delay="10 sec"/>
