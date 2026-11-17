@@ -47,3 +47,12 @@ use the editor.
 - Every dispatched op is written to a durable device outbox (`device-cache.ts` outbox store) before sending and removed only on a server answer; network failures retry in order, and `applyHospitalOp` skips an op whose audit id (`log-<now>-<userId>-<op>`) is already recorded — so offline entries are never lost or doubled. The outbox survives sign-out. Covered by `outbox.test.ts`.
 - DB triggers keep a start-of-day copy of each changed chunk in `hospital_restore_points` (one year); only the director restores via `restore.functions.ts` → `restore_hospital_to_day`, which bumps the version so caches and devices refresh.
 - Look and feel come only from tokens/utilities in `src/styles.css` (palette, gradients, `hero-banner`, `stat-icon`, `sync-badge`); printed documents use the `--doc-*` variables.
+
+## Standalone local build (current product)
+- This fork runs without Supabase: `src/lib/local/db.server.ts` is one SQLite file (`node:sqlite`) under `ALRAHMA_DATA_DIR`, normally `<app>/data`. Chunks, CAS versions, audit rows and restore points are implemented there in TypeScript; do not add Supabase imports back.
+- Auth is local (`auth.server.ts`): scrypt passwords, `profiles`/`user_roles`/`sessions`, HttpOnly `alrahma_session` cookie. Server functions use `requireAuth` (`auth-middleware.ts`) and `context.me`; never trust a client-provided user id.
+- Private files live under `<data>/files`; metadata in `stored_files`. Uploads go through `/api/upload?token=...`, downloads through `/api/file/:id`; both check the session and section.
+- The packaged app is Tauri (`src-tauri`) + bundled Node sidecar. It serves `http://alrahma.local` on port 80 via mDNS (`runtime.server.ts`), advertises the name, and keeps WebView2 data in `<app>/data/browser`. `client.json` switches the same exe to client mode.
+- Daily backups (`backup.server.ts`) write a SQLite snapshot + additive file mirror to `<app>/Backups` and `%PUBLIC%\Documents\AlRahmaHospitalBackups\<PC>`. Backups run on start, hourly check, and manual from Settings → النسخ الاحتياطي.
+- Windows service mode uses WinSW + `packaging/install-service.ps1`; the nightly update task applies signed `Updates\apply-update.ps1` packages. Signing uses an internal root CA + rotating leaf (`trust/AlRahmaRoot.cer`, `scripts/sign-release.ps1`); updates are signed and hash-verified.
+- Build/package: `npm run app:build`, `npm run app:package`, `scripts/sign-release.ps1`, `node scripts/make-update.mjs`. Do not ship `data/`, `Backups/` or test databases.

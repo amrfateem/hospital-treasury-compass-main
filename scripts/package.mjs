@@ -37,17 +37,17 @@ function nodeExe() {
 function loaderDll() {
   const local = join(root, "src-tauri", "target", "release", "WebView2Loader.dll");
   if (existsSync(local)) return local;
-  const crate = join(
-    process.env.USERPROFILE,
-    ".cargo",
-    "registry",
-    "src",
-    "index.crates.io-1949cf8c6b5b557f",
-    "webview2-com-sys-0.39.1",
-    "x64",
-    "WebView2Loader.dll",
-  );
-  if (existsSync(crate)) return crate;
+  const registry = join(process.env.USERPROFILE, ".cargo", "registry", "src");
+  if (existsSync(registry)) {
+    for (const host of readdirSync(registry)) {
+      const hostDir = join(registry, host);
+      for (const crate of readdirSync(hostDir)) {
+        if (!crate.startsWith("webview2-com-sys-")) continue;
+        const dll = join(hostDir, crate, "x64", "WebView2Loader.dll");
+        if (existsSync(dll)) return dll;
+      }
+    }
+  }
   throw new Error("WebView2Loader.dll not found; build Tauri first.");
 }
 

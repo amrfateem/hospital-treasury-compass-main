@@ -4,7 +4,13 @@
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
 $Version = "__VERSION__"
-$AppDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$AppDir = $PSScriptRoot
+for ($i = 0; $i -lt 4; $i++) {
+  if (Test-Path (Join-Path $AppDir "AlRahmaHospital.exe")) { break }
+  $AppDir = Split-Path $AppDir -Parent
+}
+if (-not (Test-Path (Join-Path $AppDir "AlRahmaHospital.exe"))) { throw "لم يتم العثور على مجلد البرنامج." }
+$AppDir = (Resolve-Path $AppDir).Path
 $Payload = Join-Path $PSScriptRoot "payload"
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $Backup = Join-Path $AppDir ("Backups\pre-update-" + $Stamp)
@@ -82,3 +88,6 @@ if (-not $ok) {
 
 Write-Host "تم تحديث النظام إلى $Version بنجاح." -ForegroundColor Green
 Write-Host "النسخة السابقة محفوظة بجانب المجلدات باسم server.old-$Version و public.old-$Version."
+Set-Content -Path (Join-Path $PSScriptRoot "applied.txt") -Value ("{0} at {1}" -f $Version, (Get-Date -Format s)) -Encoding UTF8
+Rename-Item -Path (Join-Path $PSScriptRoot "apply-update.ps1") -NewName ("applied-$Version.ps1") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $PSScriptRoot "payload") -Recurse -Force -ErrorAction SilentlyContinue
