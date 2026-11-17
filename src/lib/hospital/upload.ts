@@ -1,5 +1,4 @@
 /** Browser helpers for private files (ID cards, signatures, signed contracts, attachments). */
-import { supabase } from "@/integrations/supabase/client";
 import { confirmFileUpload, createFileUpload } from "./files.functions";
 
 export const ACCEPTED_FILES = "image/jpeg,image/png,image/webp,application/pdf";
@@ -22,8 +21,12 @@ export async function uploadPrivateFile(a: {
   const { path, token } = await createFileUpload({
     data: { ownerKind: a.ownerKind, ownerId: a.ownerId, mimeType, size: a.file.size },
   });
-  const { error } = await supabase.storage.from("private-files").uploadToSignedUrl(path, token, a.file, { contentType: mimeType });
-  if (error) throw new Error("تعذّر رفع الملف، تحقق من الاتصال.");
+  const res = await fetch(`/api/upload?token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "content-type": mimeType },
+    body: a.file,
+  });
+  if (!res.ok) throw new Error("تعذّر رفع الملف، حاول مرة أخرى.");
   return confirmFileUpload({
     data: {
       ownerKind: a.ownerKind,
@@ -39,7 +42,7 @@ export async function uploadPrivateFile(a: {
   });
 }
 
-/** Turns a (signed) image URL into a data URL so PDF capture never hits cross-origin limits. */
+/** Turns an image URL into a data URL so PDF capture never hits cross-origin limits. */
 export async function urlToDataUrl(url: string): Promise<string> {
   const blob = await (await fetch(url)).blob();
   return new Promise((resolve, reject) => {

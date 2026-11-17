@@ -10,6 +10,15 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // The portable app runs on Node (Tauri sidecar), not Cloudflare.
+  nitro: { preset: "node-server" },
+  vite: {
+    server: {
+      watch: {
+        ignored: ["**/src-tauri/**", "**/release/**", "**/portable/**", "**/.data*/**", "**/tools/**"],
+      },
+    },
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

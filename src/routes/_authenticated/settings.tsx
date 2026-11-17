@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Building2,
+  HardDriveDownload,
   Landmark,
   ListChecks,
   RotateCcw,
@@ -22,6 +23,7 @@ import { ResetPanel } from "@/components/hospital/settings/ResetPanel";
 import { UsersManager } from "@/components/hospital/settings/UsersManager";
 import { CashboxesManager } from "@/components/hospital/settings/CashboxesManager";
 import { BranchesCurrencies } from "@/components/hospital/settings/BranchesCurrencies";
+import { BackupPanel } from "@/components/hospital/settings/BackupPanel";
 import { DEFAULT_PAYROLL_SETTINGS } from "@/lib/hospital/payroll-tax";
 import {
   saveSettings,
@@ -30,7 +32,7 @@ import {
   type HospitalSettings,
 } from "@/lib/hospital/store";
 
-const TABS = ["users", "departments", "lists", "boxes", "branches", "hospital", "tax", "reset"] as const;
+const TABS = ["users", "departments", "lists", "boxes", "branches", "hospital", "tax", "backup", "reset"] as const;
 type Tab = (typeof TABS)[number];
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -60,7 +62,10 @@ function SettingsPage() {
   const { me } = useHospitalSession();
   const owner = me?.role === "admin";
   const search = Route.useSearch();
-  const tab = search.tab === "users" && !owner ? "departments" : (search.tab ?? (owner ? "users" : "departments"));
+  const tab =
+    (search.tab === "users" || search.tab === "backup") && !owner
+      ? "departments"
+      : (search.tab ?? (owner ? "users" : "departments"));
   const navigate = Route.useNavigate();
   return (
     <div className="mx-auto max-w-6xl">
@@ -78,6 +83,11 @@ function SettingsPage() {
           {owner && (
             <TabsTrigger value="users" className="flex-none gap-1.5">
               <UserCog className="size-4" /> المستخدمين والصلاحيات
+            </TabsTrigger>
+          )}
+          {owner && (
+            <TabsTrigger value="backup" className="flex-none gap-1.5">
+              <HardDriveDownload className="size-4" /> النسخ الاحتياطي
             </TabsTrigger>
           )}
           <TabsTrigger value="departments" className="flex-none gap-1.5">
@@ -105,6 +115,11 @@ function SettingsPage() {
         {owner && (
           <TabsContent value="users">
             <UsersManager />
+          </TabsContent>
+        )}
+        {owner && (
+          <TabsContent value="backup">
+            <BackupPanel />
           </TabsContent>
         )}
         <TabsContent value="boxes">

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "./auth-middleware";
 import { can, type Section } from "./permissions";
-import { loadMe } from "./sync.functions";
+import type { Me } from "./me";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
@@ -20,13 +20,8 @@ function validateFile(input: unknown): FileInput {
   return { fileName: f.fileName.slice(0, 120), mimeType: f.mimeType, base64: f.base64 };
 }
 
-async function guard(supabase: Parameters<typeof loadMe>[0], userId: string, section: Section) {
-  try {
-    const me = await loadMe(supabase, userId);
-    return can(me, section, "add") ? null : "ليست لديك صلاحية لهذه العملية.";
-  } catch {
-    return "ليست لديك صلاحية دخول النظام.";
-  }
+function guard(me: Me, section: Section) {
+  return can(me, section, "add") ? null : "ليست لديك صلاحية لهذه العملية.";
 }
 
 export interface ReadInvoice {
@@ -49,7 +44,7 @@ export interface ReadInvoice {
 const nullable = (type: "string" | "number") => ({ type: [type, "null"] as ["string" | "number", "null"] });
 
 export const readSupplierInvoice = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator((input: { file: FileInput; categories: { id: string; name: string }[] }) => ({
     file: validateFile(input?.file),
     categories: Array.isArray(input?.categories)
@@ -57,7 +52,7 @@ export const readSupplierInvoice = createServerFn({ method: "POST" })
       : [],
   }))
   .handler(async ({ data, context }) => {
-    const denied = await guard(context.supabase, context.userId, "suppliers");
+    const denied = guard(context.me, "suppliers");
     if (denied) return { ok: false as const, error: denied };
     const { readDocument, AiReadError } = await import("./ai.server");
     const cats = data.categories.map((c) => `${c.id} = ${c.name}`).join("\n");
@@ -132,10 +127,10 @@ export interface ReadStatement {
 }
 
 export const readBankStatement = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator((input: { file: FileInput }) => ({ file: validateFile(input?.file) }))
   .handler(async ({ data, context }) => {
-    const denied = await guard(context.supabase, context.userId, "bank");
+    const denied = guard(context.me, "bank");
     if (denied) return { ok: false as const, error: denied };
     const { readDocument, AiReadError } = await import("./ai.server");
     try {

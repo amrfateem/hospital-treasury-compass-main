@@ -1,70 +1,111 @@
 /**
- * Server-side access to the hospital document (stored as chunks, see chunks.ts).
+ * Server-side access to the hospital document, stored as small JSON chunks in SQLite.
  * Keeps the last document in memory with its version: a request reads only the tiny version
- * row and reuses the cached copy when nothing changed, instead of re-reading everything.
+ * row and reuses the cached copy when nothing changed.
  */
-import type { Json } from "@/integrations/supabase/types";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { diffChunks, joinChunks, splitDB } from "./chunks";
+import { all, cairoDay, get, run, transaction } from "@/lib/local/db.server";
+import { diffChunks, joinChunks } from "./chunks";
 import { normalizeDB, type AuditEntry, type HospitalDB } from "./model";
 
 let cache: { version: number; db: HospitalDB } | null = null;
-const PAGE = 500;
 
-async function currentVersion() {
-  const { data, error } = await supabaseAdmin.from("hospital_state_meta").select("version").eq("id", 1).single();
-  if (error) throw error;
-  return Number(data.version);
+function currentVersion(): number {
+  const row = get<{ value: string }>("SELECT value FROM meta WHERE key = 'version'");
+  return Number(row?.value ?? 0);
 }
 
-async function readAllChunks(): Promise<Record<string, unknown>> {
+function readAllChunks(): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabaseAdmin
-      .from("hospital_chunks")
-      .select("key, data")
-      .not("data", "is", null)
-      .order("key")
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    for (const r of data) out[r.key] = r.data;
-    if (data.length < PAGE) break;
+  for (const row of all<{ key: string; data: string }>(
+    "SELECT key, data FROM chunks WHERE data IS NOT NULL ORDER BY key",
+  )) {
+    try {
+      out[row.key] = JSON.parse(row.data) as unknown;
+    } catch {
+      console.error("bad chunk", row.key);
+    }
   }
   return out;
 }
 
-/** One-time move of an older single-document save into chunks. */
-async function migrateLegacy(version: number) {
-  const { data } = await supabaseAdmin.from("hospital_state").select("data").eq("id", 1).maybeSingle();
-  const legacy = (data?.data ?? {}) as Record<string, unknown>;
-  if (!legacy || !Object.keys(legacy).length) return null;
-  const db = normalizeDB(legacy as Partial<HospitalDB>);
-  const saved = await saveChunks(version, splitDB(db), []);
-  if (saved === null) return null;
-  await supabaseAdmin.from("hospital_state").update({ data: {} as Json }).eq("id", 1);
-  return { version: saved, db };
-}
-
 export async function readState(): Promise<{ version: number; db: HospitalDB }> {
-  const version = await currentVersion();
+  const version = currentVersion();
   if (cache && cache.version === version) return cache;
-  const chunks = await readAllChunks();
-  if (!Object.keys(chunks).length) {
-    const moved = await migrateLegacy(version);
-    if (moved) return (cache = moved);
-  }
-  cache = { version, db: normalizeDB(joinChunks(chunks) as Partial<HospitalDB>) };
+  cache = { version, db: normalizeDB(joinChunks(readAllChunks()) as Partial<HospitalDB>) };
   return cache;
 }
 
-async function saveChunks(expected: number, chunks: Record<string, unknown>, audit: AuditEntry[]) {
-  const { data, error } = await supabaseAdmin.rpc("save_hospital_chunks", {
-    _expected: expected,
-    _chunks: chunks as Json,
-    _audit: audit as unknown as Json,
+function writeAudit(entries: AuditEntry[], version: number) {
+  for (const a of entries) {
+    run(
+      `INSERT OR IGNORE INTO audit_log (id, at, by_name, by_id, role, op, section, summary, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      a.id,
+      Math.round(a.at),
+      a.by ?? "",
+      a.byId || null,
+      a.role ?? "",
+      a.op ?? "",
+      a.section ?? "",
+      a.summary ?? "",
+      version,
+    );
+  }
+}
+
+/** Applies changed chunks atomically only if the version still matches. */
+function saveChunks(expected: number, chunks: Record<string, unknown>, audit: AuditEntry[]): number | null {
+  return transaction(() => {
+    if (currentVersion() !== expected) return null;
+    const version = expected + 1;
+    const day = cairoDay();
+    const now = new Date().toISOString();
+    for (const [key, value] of Object.entries(chunks)) {
+      const data = value === null || value === undefined ? null : JSON.stringify(value);
+      const old = get<{ data: string | null; version: number }>(
+        "SELECT data, version FROM chunks WHERE key = ?",
+        key,
+      );
+      if (old) {
+        if (old.data !== data) {
+          run(
+            `INSERT OR IGNORE INTO restore_points (day, key, data, version, saved_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            day,
+            key,
+            old.data,
+            old.version,
+            now,
+          );
+        }
+        run(
+          "UPDATE chunks SET data = ?, version = ?, updated_at = ? WHERE key = ?",
+          data,
+          version,
+          now,
+          key,
+        );
+      } else {
+        run(
+          `INSERT OR IGNORE INTO restore_points (day, key, data, version, saved_at)
+           VALUES (?, ?, NULL, 0, ?)`,
+          day,
+          key,
+          now,
+        );
+        run(
+          "INSERT INTO chunks (key, data, version, updated_at) VALUES (?, ?, ?, ?)",
+          key,
+          data,
+          version,
+          now,
+        );
+      }
+    }
+    writeAudit(audit, version);
+    run("UPDATE meta SET value = ? WHERE key = 'version'", String(version));
+    return version;
   });
-  if (error) throw error;
-  return data === null || data === undefined ? null : Number(data);
 }
 
 /** Saves only what changed between prev and next; null when another device saved first. */
@@ -72,7 +113,7 @@ export async function saveState(expected: number, prev: HospitalDB, next: Hospit
   const changed = diffChunks(prev, next);
   const known = new Set(prev.auditLog.map((e) => e.id));
   const audit = next.auditLog.filter((e) => !known.has(e.id));
-  const saved = await saveChunks(expected, changed, audit);
+  const saved = saveChunks(expected, changed, audit);
   if (saved !== null) cache = { version: saved, db: next };
   else cache = null;
   return saved;
@@ -80,11 +121,14 @@ export async function saveState(expected: number, prev: HospitalDB, next: Hospit
 
 /** Keys of chunks saved after `since` (null when too many to send piece by piece). */
 export async function changedKeysSince(since: number, limit = 400) {
-  const { data, error } = await supabaseAdmin
-    .from("hospital_chunks")
-    .select("key")
-    .gt("version", since)
-    .limit(limit + 1);
-  if (error) throw error;
-  return data.length > limit ? null : data.map((r) => r.key);
+  const rows = all<{ key: string }>(
+    "SELECT key FROM chunks WHERE version > ? LIMIT ?",
+    since,
+    limit + 1,
+  );
+  return rows.length > limit ? null : rows.map((r) => r.key);
+}
+
+export function resetStateCache() {
+  cache = null;
 }

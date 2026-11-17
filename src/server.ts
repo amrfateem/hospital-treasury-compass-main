@@ -3,6 +3,12 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 
+if (process.env["ALRAHMA_APP"] === "1") {
+  void import("./lib/local/runtime.server")
+    .then((m) => m.initRuntime())
+    .catch((e) => console.error("[alrahama] runtime init failed", e));
+}
+
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };

@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
 import { HOSPITAL } from "@/lib/hospital/constants";
-import { USERNAME_RE, normalizeUsername, usernameToEmail } from "@/lib/hospital/staff";
+import { USERNAME_RE, normalizeUsername } from "@/lib/hospital/staff";
 import { createFirstAdmin, getSetupStatus } from "@/lib/hospital/users.functions";
+import { getSession, signIn as createSession } from "@/lib/hospital/session.functions";
+import { setCurrentUserId } from "@/lib/hospital/current-user";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -97,26 +98,29 @@ function AuthPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: safeTarget(redirect), replace: true });
+    void getSession().then(({ user }) => {
+      if (user) {
+        setCurrentUserId(user.id);
+        void navigate({ to: safeTarget(redirect), replace: true });
+      }
     });
   }, [navigate, redirect]);
 
   async function signIn(u: string, p: string) {
-    // A weak connection is retried quietly instead of being reported as a wrong password.
     for (let attempt = 0; ; attempt++) {
-      const { error: err } = await supabase.auth.signInWithPassword({
-        email: usernameToEmail(u),
-        password: p,
-      });
-      if (!err) break;
-      const network = err.name === "AuthRetryableFetchError" || !err.status;
-      if (network && attempt < 2) {
-        await wait(800 * (attempt + 1));
-        continue;
+      try {
+        const { user } = await createSession({ data: { username: u, password: p } });
+        setCurrentUserId(user.id);
+        break;
+      } catch (err) {
+        const network = err instanceof TypeError && /fetch/i.test(err.message);
+        if (network && attempt < 2) {
+          await wait(800 * (attempt + 1));
+          continue;
+        }
+        if (network) throw new TypeError("fetch failed");
+        throw err instanceof Error ? err : new Error("اسم المستخدم أو كلمة المرور غير صحيحة، أو الحساب موقوف.");
       }
-      if (network) throw new TypeError("fetch failed");
-      throw new Error("اسم المستخدم أو كلمة المرور غير صحيحة، أو الحساب موقوف.");
     }
     await router.invalidate();
     void navigate({ to: safeTarget(redirect), replace: true });
@@ -176,8 +180,8 @@ function AuthPage() {
             في مكان واحد لكل أقسام المستشفى
           </p>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-sidebar-foreground/75">
-            كل موظف يدخل بحسابه ويرى ما يخصه فقط. البيانات محفوظة على السحابة وتظهر لحظيًا على كل
-            أجهزة المستشفى.
+            كل موظف يدخل بحسابه ويرى ما يخصه فقط. البيانات محفوظة على سيرفر المستشفى وتظهر لحظيًا على
+            كل أجهزة الشبكة.
           </p>
         </div>
         <p className="text-[11px] text-sidebar-foreground/50">

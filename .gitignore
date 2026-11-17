@@ -15,6 +15,15 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+.data
+.data-*
+portable
+release
+src-tauri/target
+signing/*.pfx
+.signing-*
+.smoke.png
+.patients.png
 
 # Wrangler / Cloudflare
 .wrangler/

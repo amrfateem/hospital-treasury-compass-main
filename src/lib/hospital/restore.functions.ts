@@ -1,17 +1,14 @@
 /**
- * Daily restore points (director only). The database keeps, for every piece of the hospital
- * document, how it looked at the start of each day it changed (trigger on hospital_chunks).
- * Restoring rewrites the pieces to the start of a chosen day; the permanent audit log is kept.
+ * Daily restore points (director only). For every piece of the hospital document, the first
+ * change of each day keeps how it looked at the start of that day. Restoring rewrites the
+ * pieces to the start of a chosen day; the permanent audit log is kept.
  */
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+import { all, cairoDay, get, run, transaction } from "@/lib/local/db.server";
+import { requireAuth } from "./auth-middleware";
 
-async function requireDirector(ctx: { supabase: SupabaseClient<Database>; userId: string }) {
-  const { data, error } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
-  if (error) throw error;
-  if (!data) throw new Error("نقاط الاستعادة متاحة لمدير المستشفى فقط.");
+function requireDirector(role: string) {
+  if (role !== "admin") throw new Error("نقاط الاستعادة متاحة لمدير المستشفى فقط.");
 }
 
 export interface RestoreDay {
@@ -21,13 +18,13 @@ export interface RestoreDay {
 }
 
 export const listRestoreDays = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<RestoreDay[]> => {
-    await requireDirector(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin.rpc("list_restore_days");
-    if (error) throw error;
-    return (data ?? []).map((r) => ({ day: r.day, pieces: Number(r.pieces), firstSaved: r.first_saved }));
+    requireDirector(context.me.role);
+    return all<{ day: string; pieces: number; first_saved: string }>(
+      `SELECT day, COUNT(*) AS pieces, MIN(saved_at) AS first_saved
+         FROM restore_points GROUP BY day ORDER BY day DESC LIMIT 400`,
+    ).map((r) => ({ day: r.day, pieces: Number(r.pieces), firstSaved: r.first_saved }));
   });
 
 function validDay(s: unknown): string {
@@ -38,30 +35,41 @@ function validDay(s: unknown): string {
 }
 
 export const restoreToDay = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((d: { day: string }) => ({ day: validDay(d?.day) }))
   .handler(async ({ data, context }) => {
-    await requireDirector(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.rpc("prune_restore_points");
-    const { data: version, error } = await supabaseAdmin.rpc("restore_hospital_to_day", { _day: data.day });
-    if (error) throw error;
-    const v = Number(version);
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("full_name, username")
-      .eq("id", context.userId)
-      .maybeSingle();
-    await supabaseAdmin.from("audit_log").insert({
-      id: `restore-${Date.now()}-${context.userId}`,
-      at: new Date().toISOString(),
-      by_name: profile?.full_name || profile?.username || "",
-      by_id: context.userId,
-      role: "admin",
-      op: "restoreToDay",
-      section: "settings",
-      summary: `استعادة النظام إلى بداية يوم ${data.day}`,
-      version: v,
+    requireDirector(context.me.role);
+    const version = transaction(() => {
+      const old = get<{ value: string }>("SELECT value FROM meta WHERE key = 'version'");
+      const next = Number(old?.value ?? 0) + 1;
+      const cutoff = cairoDay(new Date(Date.now() - 366 * 86400000));
+      run("DELETE FROM restore_points WHERE day < ?", cutoff);
+
+      const firsts = all<{ key: string; data: string | null }>(
+        `SELECT r.key, r.data
+           FROM restore_points r
+           JOIN (SELECT key, MIN(day) AS day FROM restore_points WHERE day >= ? GROUP BY key) f
+             ON f.key = r.key AND f.day = r.day`,
+        data.day,
+      );
+      const now = new Date().toISOString();
+      for (const f of firsts) {
+        run("UPDATE chunks SET data = ?, version = ?, updated_at = ? WHERE key = ?", f.data, next, now, f.key);
+      }
+      run(
+        `INSERT INTO audit_log (id, at, by_name, by_id, role, op, section, summary, version)
+         VALUES (?, ?, ?, ?, 'admin', 'restoreToDay', 'settings', ?, ?)`,
+        `restore-${Date.now()}-${context.userId}`,
+        Date.now(),
+        context.me.name,
+        context.userId,
+        `استعادة النظام إلى بداية يوم ${data.day}`,
+        next,
+      );
+      run("UPDATE meta SET value = ? WHERE key = 'version'", String(next));
+      return next;
     });
-    return { ok: true as const, version: v };
+    const { resetStateCache } = await import("./state.server");
+    resetStateCache();
+    return { ok: true as const, version };
   });

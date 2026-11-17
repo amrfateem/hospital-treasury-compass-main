@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { getCurrentUserId, setCurrentUserId } from "./current-user";
 import type { Department, DepartmentId } from "./constants";
 import { isoDate } from "./format";
 import {
@@ -166,8 +166,7 @@ async function startFromDeviceCache(): Promise<boolean> {
   if (triedCache || state.status === "ready") return false;
   triedCache = true;
   try {
-    const { data } = await supabase.auth.getSession();
-    const userId = data.session?.user.id;
+    const userId = getCurrentUserId();
     if (!userId) return false;
     const cached = await readCache(userId);
     if (!cached || (state.status as Status) === "ready") return false;
@@ -203,6 +202,7 @@ export function loadHospital(): Promise<void> {
         reloadWanted = true;
         return;
       }
+      setCurrentUserId(res.me.id);
       set({
         db: normalizeDB(res.db as unknown as Partial<HospitalDB>),
         version: res.version,
@@ -276,6 +276,7 @@ export function clearHospital() {
   cachedVersion = -1;
   if (cacheTimer) clearTimeout(cacheTimer);
   cacheTimer = null;
+  setCurrentUserId(null);
   set({ ...SERVER_SNAPSHOT });
   void clearCache();
 }
@@ -296,29 +297,22 @@ subscribe(() => {
   }, 2500);
 });
 
-/** Subscribes to the version ping; returns an unsubscribe function. */
+/** Polls the local server for a new version; returns an unsubscribe function. */
 export function startLiveSync() {
-  const channel = supabase
-    .channel(`hospital-${Math.random().toString(36).slice(2)}`)
-    .on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "hospital_state_meta" },
-      (payload) => {
-        const v = Number((payload.new as { version?: number }).version);
-        if (v > state.version) {
-          if (pending) reloadWanted = true;
-          else void syncChanges();
-        }
-      },
-    )
-    .subscribe();
+  let stopped = false;
+  const tick = () => {
+    if (stopped || pending || state.status !== "ready") return;
+    void syncChanges();
+  };
+  const timer = setInterval(tick, 4000);
   const onFocus = () => {
     if (!pending && state.status === "ready") void syncChanges();
   };
   window.addEventListener("focus", onFocus);
   return () => {
+    stopped = true;
+    clearInterval(timer);
     window.removeEventListener("focus", onFocus);
-    void supabase.removeChannel(channel);
   };
 }
 
@@ -411,7 +405,7 @@ function flush(): Promise<void> {
         if (!isNetworkError(err) && ++serverErrors >= 5) {
           // The server keeps failing on this one change: drop it so the rest can be saved.
           serverErrors = 0;
-          toast.error("تعذّر حفظ إحدى العمليات على السحابة بعد عدة محاولات وتم إلغاؤها.");
+          toast.error("تعذّر حفظ إحدى العمليات على السيرفر بعد عدة محاولات وتم إلغاؤها.");
           outbox.shift();
           persisted.delete(e.key);
           await deleteOutbox(e.key);

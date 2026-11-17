@@ -317,7 +317,7 @@ function SidebarBody({
           </Button>
         </div>
         <p className="mt-3 text-[10px] text-sidebar-foreground/50">
-          كل عملية تُحفظ على الجهاز أولًا ثم السحابة — لا يضيع شيء حتى لو انقطع الإنترنت
+          كل عملية تُحفظ على الجهاز أولًا ثم سيرفر المستشفى — لا يضيع شيء حتى لو انقطعت الشبكة
         </p>
       </div>
     </div>
@@ -338,7 +338,7 @@ function LegacyImport() {
       <CloudUpload className="size-6 shrink-0 text-primary" />
       <p className="flex-1 text-sm">
         وجدنا بيانات محفوظة على هذا الجهاز من النسخة السابقة ({legacy.patientInvoices.length}{" "}
-        فاتورة، {legacy.transactions.length} حركة خزينة). هل تريد رفعها للسحابة؟
+        فاتورة، {legacy.transactions.length} حركة خزينة). هل تريد رفعها للسيرفر؟
       </p>
       <div className="flex gap-2">
         <Button
@@ -347,7 +347,7 @@ function LegacyImport() {
             if (restoreBackup(JSON.stringify(legacy))) {
               forgetLegacyDeviceData();
               setLegacy(null);
-              toast.success("تم رفع بيانات الجهاز إلى السحابة.");
+              toast.success("تم رفع بيانات الجهاز إلى السيرفر.");
             }
           }}
         >
@@ -373,10 +373,10 @@ function SyncBadge({ compact = false }: { compact?: boolean }) {
   const { state, queued } = useSyncStatus();
   const label =
     state === "offline"
-      ? `بانتظار الإنترنت${queued ? ` • ${queued} محفوظة على الجهاز` : ""}`
+      ? `بانتظار الاتصال بالسيرفر${queued ? ` • ${queued} محفوظة على الجهاز` : ""}`
       : state === "saving"
         ? `جارٍ الحفظ${queued > 1 ? ` (${queued})` : ""}`
-        : "تم الحفظ على السحابة";
+        : "تم الحفظ على السيرفر";
   const Icon = state === "offline" ? CloudOff : state === "saving" ? RefreshCw : Cloud;
   return (
     <span

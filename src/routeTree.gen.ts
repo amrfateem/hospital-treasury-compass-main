@@ -46,6 +46,10 @@ import { Route as AuthenticatedStockRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedSupplierAccountsRouteImport } from './routes/_authenticated/supplier-accounts'
 import { Route as AuthenticatedSuppliersRouteImport } from './routes/_authenticated/suppliers'
 import { Route as AuthenticatedTreasuryRouteImport } from './routes/_authenticated/treasury'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiPingRouteImport } from './routes/api/ping'
+import { Route as ApiUploadRouteImport } from './routes/api/upload'
+import { Route as ApiFileIdRouteImport } from './routes/api/file/$id'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -239,6 +243,26 @@ const AuthenticatedTreasuryRoute = AuthenticatedTreasuryRouteImport.update({
   path: '/treasury',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPingRoute = ApiPingRouteImport.update({
+  id: '/api/ping',
+  path: '/api/ping',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUploadRoute = ApiUploadRouteImport.update({
+  id: '/api/upload',
+  path: '/api/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFileIdRoute = ApiFileIdRouteImport.update({
+  id: '/api/file/$id',
+  path: '/api/file/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -277,6 +301,10 @@ export interface FileRoutesByFullPath {
   '/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/suppliers': typeof AuthenticatedSuppliersRoute
   '/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/ping': typeof ApiPingRoute
+  '/api/upload': typeof ApiUploadRoute
+  '/api/file/$id': typeof ApiFileIdRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -314,7 +342,11 @@ export interface FileRoutesByTo {
   '/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/suppliers': typeof AuthenticatedSuppliersRoute
   '/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/ping': typeof ApiPingRoute
+  '/api/upload': typeof ApiUploadRoute
   '/': typeof AuthenticatedIndexRoute
+  '/api/file/$id': typeof ApiFileIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -354,7 +386,11 @@ export interface FileRoutesById {
   '/_authenticated/supplier-accounts': typeof AuthenticatedSupplierAccountsRoute
   '/_authenticated/suppliers': typeof AuthenticatedSuppliersRoute
   '/_authenticated/treasury': typeof AuthenticatedTreasuryRoute
+  '/api/health': typeof ApiHealthRoute
+  '/api/ping': typeof ApiPingRoute
+  '/api/upload': typeof ApiUploadRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/api/file/$id': typeof ApiFileIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -395,6 +431,10 @@ export interface FileRouteTypes {
     | '/supplier-accounts'
     | '/suppliers'
     | '/treasury'
+    | '/api/health'
+    | '/api/ping'
+    | '/api/upload'
+    | '/api/file/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -432,7 +472,11 @@ export interface FileRouteTypes {
     | '/supplier-accounts'
     | '/suppliers'
     | '/treasury'
+    | '/api/health'
+    | '/api/ping'
+    | '/api/upload'
     | '/'
+    | '/api/file/$id'
   id:
     | '__root__'
     | '/_authenticated'
@@ -471,12 +515,20 @@ export interface FileRouteTypes {
     | '/_authenticated/supplier-accounts'
     | '/_authenticated/suppliers'
     | '/_authenticated/treasury'
+    | '/api/health'
+    | '/api/ping'
+    | '/api/upload'
     | '/_authenticated/'
+    | '/api/file/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiHealthRoute: typeof ApiHealthRoute
+  ApiPingRoute: typeof ApiPingRoute
+  ApiUploadRoute: typeof ApiUploadRoute
+  ApiFileIdRoute: typeof ApiFileIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -740,6 +792,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTreasuryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ping': {
+      id: '/api/ping'
+      path: '/api/ping'
+      fullPath: '/api/ping'
+      preLoaderRoute: typeof ApiPingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/upload': {
+      id: '/api/upload'
+      path: '/api/upload'
+      fullPath: '/api/upload'
+      preLoaderRoute: typeof ApiUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/file/$id': {
+      id: '/api/file/$id'
+      path: '/api/file/$id'
+      fullPath: '/api/file/$id'
+      preLoaderRoute: typeof ApiFileIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -825,6 +905,10 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiHealthRoute: ApiHealthRoute,
+  ApiPingRoute: ApiPingRoute,
+  ApiUploadRoute: ApiUploadRoute,
+  ApiFileIdRoute: ApiFileIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

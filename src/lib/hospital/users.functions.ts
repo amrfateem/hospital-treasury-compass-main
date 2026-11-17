@@ -1,34 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+import { requireAuth } from "./auth-middleware";
 import type { Role } from "./model";
-import {
-  ROLES,
-  cleanControls,
-  cleanPermissions,
-  type Permissions,
-  type StaffControls,
-} from "./permissions";
-import { USERNAME_RE, normalizeUsername, usernameToEmail } from "./staff";
+import { ROLES, cleanControls, cleanPermissions } from "./permissions";
+import { USERNAME_RE, normalizeUsername } from "./staff";
+import type { StaffRow } from "./users.server";
 
-export interface StaffRow {
-  id: string;
-  username: string;
-  fullName: string;
-  role: Role | null;
-  active: boolean;
-  createdAt: string;
-  permissions: Permissions | null;
-  controls: StaffControls | null;
-}
+export type { StaffRow };
 
-function checkStaffInput(i: {
-  username?: string;
-  fullName: string;
-  role: Role;
-  password?: string;
-}) {
+function checkStaffInput(i: { username?: string; fullName: string; role: Role; password?: string }) {
   if (i.username !== undefined && !USERNAME_RE.test(normalizeUsername(i.username)))
     throw new Error("اسم المستخدم: حروف إنجليزية صغيرة وأرقام (٣ إلى ٣٠ حرفًا) بدون مسافات.");
   if (!i.fullName.trim()) throw new Error("اكتب الاسم بالكامل.");
@@ -37,7 +16,7 @@ function checkStaffInput(i: {
     throw new Error("كلمة المرور يجب ألا تقل عن ٨ أحرف.");
 }
 
-/** Turns sign-in service messages (English) into Arabic for staff. */
+/** Turns sign-in service messages into Arabic for staff. */
 export function authErrorAr(message: string | undefined, fallback: string): string {
   const m = (message ?? "").toLowerCase();
   if (m.includes("weak") || m.includes("pwned") || m.includes("easy to guess"))
@@ -49,63 +28,10 @@ export function authErrorAr(message: string | undefined, fallback: string): stri
   return fallback;
 }
 
-async function admin() {
-  return (await import("@/integrations/supabase/client.server")).supabaseAdmin;
-}
-
-type AdminClient = Awaited<ReturnType<typeof admin>>;
-
-async function createAccount(i: {
-  username: string;
-  fullName: string;
-  password: string;
-  role: Role;
-  permissions?: Permissions | null | undefined;
-  controls?: StaffControls | null | undefined;
-}) {
-  const sb = await admin();
-  const username = normalizeUsername(i.username);
-  const { data: taken } = await sb
-    .from("profiles")
-    .select("id")
-    .eq("username", username)
-    .maybeSingle();
-  if (taken) throw new Error("اسم المستخدم مستخدم بالفعل.");
-  const { data, error } = await sb.auth.admin.createUser({
-    email: usernameToEmail(username),
-    password: i.password,
-    email_confirm: true,
-    user_metadata: { username, full_name: i.fullName.trim() },
-  });
-  if (error || !data.user) throw new Error(authErrorAr(error?.message, "تعذّر إنشاء الحساب."));
-  const id = data.user.id;
-  const p = await sb
-    .from("profiles")
-    .insert({
-      id,
-      username,
-      full_name: i.fullName.trim(),
-      // One main treasury for everyone: nobody is tied to a drawer.
-      box_id: null,
-      permissions: i.role === "admin" ? null : (i.permissions ?? null),
-      controls: i.role === "admin" ? null : ((i.controls ?? null) as never),
-    });
-  const r = await sb.from("user_roles").insert({ user_id: id, role: i.role });
-  if (p.error || r.error) {
-    await sb.auth.admin.deleteUser(id);
-    throw new Error("تعذّر حفظ بيانات الحساب.");
-  }
-  return id;
-}
-
 /** Public: whether the very first owner account still has to be created. */
 export const getSetupStatus = createServerFn({ method: "GET" }).handler(async () => {
-  const sb = await admin();
-  const { count } = await sb
-    .from("user_roles")
-    .select("id", { count: "exact", head: true })
-    .eq("role", "admin");
-  return { needsSetup: !count };
+  const { setupStatus } = await import("./users.server");
+  return setupStatus();
 });
 
 /** Public, but only works while no owner account exists yet. */
@@ -115,45 +41,20 @@ export const createFirstAdmin = createServerFn({ method: "POST" })
     return i;
   })
   .handler(async ({ data }) => {
-    const sb = await admin();
-    const { count } = await sb
-      .from("user_roles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "admin");
-    if (count) throw new Error("تم إعداد حساب المدير بالفعل. سجّل الدخول.");
-    await createAccount({ ...data, role: "admin" });
+    const { createFirstAdmin: create } = await import("./users.server");
+    create(data);
     return { ok: true };
   });
 
-const requireAdmin = async (ctx: { supabase: SupabaseClient<Database>; userId: string }) => {
-  const { data } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
-  if (!data) throw new Error("هذه الصفحة لمدير المستشفى فقط.");
-};
-
 export const listStaff = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await requireAdmin(context);
-    const sb = await admin();
-    const [{ data: profiles }, { data: roles }] = await Promise.all([
-      sb.from("profiles").select("*").order("created_at"),
-      sb.from("user_roles").select("user_id, role"),
-    ]);
-    const rows: StaffRow[] = (profiles ?? []).map((p) => ({
-      id: p.id,
-      username: p.username,
-      fullName: p.full_name,
-      role: ROLES.find((r) => roles?.some((x) => x.user_id === p.id && x.role === r)) ?? null,
-      active: p.active,
-      createdAt: p.created_at,
-      permissions: cleanPermissions(p.permissions),
-      controls: cleanControls(p.controls),
-    }));
-    return rows;
+  .middleware([requireAuth])
+  .handler(async ({ context }): Promise<StaffRow[]> => {
+    const { listStaff: list } = await import("./users.server");
+    return list(context.me);
   });
 
 export const createStaff = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator(
     (i: {
       username: string;
@@ -164,92 +65,63 @@ export const createStaff = createServerFn({ method: "POST" })
       controls?: unknown;
     }) => {
       checkStaffInput(i);
-      return { ...i, permissions: cleanPermissions(i.permissions), controls: cleanControls(i.controls) };
+      return {
+        ...i,
+        permissions: cleanPermissions(i.permissions),
+        controls: cleanControls(i.controls),
+      };
     },
   )
   .handler(async ({ data, context }) => {
-    await requireAdmin(context);
-    await createAccount(data);
+    const { createStaff: create } = await import("./users.server");
+    create(context.me, data);
     return { ok: true };
   });
 
 export const updateStaff = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator(
-    (i: {
-      id: string;
-      fullName: string;
-      role: Role;
-      active: boolean;
-      controls?: unknown;
-    }) => {
+    (i: { id: string; fullName: string; role: Role; active: boolean; controls?: unknown }) => {
       checkStaffInput(i);
       return { ...i, controls: cleanControls(i.controls) };
     },
   )
   .handler(async ({ data, context }) => {
-    await requireAdmin(context);
-    if (data.id === context.userId && (data.role !== "admin" || !data.active))
-      throw new Error("لا يمكنك إلغاء صلاحية المدير أو إيقاف حسابك أنت.");
-    const sb = await admin();
-    const p = await sb
-      .from("profiles")
-      .update({
-        full_name: data.fullName.trim(),
-        box_id: null,
-        active: data.active,
-        controls: data.role === "admin" ? null : (data.controls as never),
-      })
-      .eq("id", data.id);
-    if (p.error) throw new Error("تعذّر حفظ التعديل.");
-    await sb.from("user_roles").delete().eq("user_id", data.id);
-    const r = await sb.from("user_roles").insert({ user_id: data.id, role: data.role });
-    if (r.error) throw new Error("تعذّر حفظ الدور.");
-    await sb.auth.admin.updateUserById(data.id, { ban_duration: data.active ? "none" : "876000h" });
+    const { updateStaff: update } = await import("./users.server");
+    update(context.me, data);
     return { ok: true };
   });
 
 export const setStaffPassword = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator((i: { id: string; password: string }) => {
     if (!i.password || i.password.length < 8) throw new Error("كلمة المرور يجب ألا تقل عن ٨ أحرف.");
     return i;
   })
   .handler(async ({ data, context }) => {
-    await requireAdmin(context);
-    const sb = await admin();
-    const { error } = await sb.auth.admin.updateUserById(data.id, { password: data.password });
-    if (error) throw new Error(authErrorAr(error.message, "تعذّر تغيير كلمة المرور."));
+    const { setStaffPassword: set } = await import("./users.server");
+    set(context.me, data);
     return { ok: true };
   });
 
 export const deleteStaff = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator((i: { id: string }) => i)
   .handler(async ({ data, context }) => {
-    await requireAdmin(context);
-    if (data.id === context.userId) throw new Error("لا يمكنك حذف حسابك أنت.");
-    const sb = await admin();
-    const { error } = await sb.auth.admin.deleteUser(data.id);
-    if (error) throw new Error("تعذّر حذف الحساب.");
+    const { deleteStaff: remove } = await import("./users.server");
+    remove(context.me, data.id);
     return { ok: true };
   });
 
 /** The director sets which sections a staff member can see or change (null = role defaults). */
 export const setStaffPermissions = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .validator((i: { id: string; permissions: unknown }) => {
     if (!i || typeof i.id !== "string") throw new Error("بيانات غير صحيحة.");
     return { id: i.id, permissions: cleanPermissions(i.permissions) };
   })
   .handler(async ({ data, context }) => {
-    await requireAdmin(context);
-    if (data.id === context.userId) throw new Error("صلاحيات مدير المستشفى كاملة ولا تُعدَّل.");
-    const sb = await admin();
-    const { error } = await sb
-      .from("profiles")
-      .update({ permissions: data.permissions })
-      .eq("id", data.id);
-    if (error) throw new Error("تعذّر حفظ الصلاحيات.");
+    const { setStaffPermissions: set } = await import("./users.server");
+    set(context.me, data.id, data.permissions);
     return { ok: true };
   });

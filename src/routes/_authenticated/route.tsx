@@ -3,7 +3,8 @@ import { HeartPulse, Loader2, LogOut, RefreshCw, ShieldAlert } from "lucide-reac
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/components/hospital/AppShell";
-import { supabase } from "@/integrations/supabase/client";
+import { getSession, signOut as endSession } from "@/lib/hospital/session.functions";
+import { setCurrentUserId } from "@/lib/hospital/current-user";
 import {
   clearHospital,
   loadHospital,
@@ -15,10 +16,10 @@ import {
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async ({ location }) => {
-    // Local session read (no network trip on every page change); the server checks the token
-    // on every request anyway.
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) throw redirect({ to: "/auth", search: { redirect: location.href } });
+    // The session cookie is checked once per navigation; the server re-checks every request.
+    const { user } = await getSession();
+    if (!user) throw redirect({ to: "/auth", search: { redirect: location.href } });
+    setCurrentUserId(user.id);
   },
   component: AuthedLayout,
 });
@@ -44,12 +45,12 @@ function AuthedLayout() {
     if (
       unsentCount() > 0 &&
       !window.confirm(
-        "توجد تغييرات لم تصل للسحابة بعد (الإنترنت غير متاح). ستبقى محفوظة على هذا الجهاز وتُرسل عند تسجيل دخولك مرة أخرى. هل تريد تسجيل الخروج؟",
+        "توجد تغييرات لم تصل للسيرفر بعد. ستبقى محفوظة على هذا الجهاز وتُرسل عند تسجيل دخولك مرة أخرى. هل تريد تسجيل الخروج؟",
       )
     )
       return;
     clearHospital();
-    await supabase.auth.signOut();
+    await endSession();
     void navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
   }
 
@@ -70,8 +71,8 @@ function AuthedLayout() {
   if (session.status === "error")
     return (
       <FullScreen>
-        <p className="font-semibold">تعذّر الاتصال بالسحابة.</p>
-        <p className="mt-1 text-sm text-muted-foreground">تحقق من الإنترنت ثم أعد المحاولة.</p>
+        <p className="font-semibold">تعذّر الاتصال بسيرفر المستشفى.</p>
+        <p className="mt-1 text-sm text-muted-foreground">تأكد من تشغيل السيرفر والشبكة ثم أعد المحاولة.</p>
         <Button className="mt-4" onClick={() => void loadHospital()}>
           <RefreshCw /> إعادة المحاولة
         </Button>
