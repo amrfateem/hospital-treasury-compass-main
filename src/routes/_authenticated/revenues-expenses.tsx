@@ -5,14 +5,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, StatCard } from "@/components/hospital/ui";
-import { DeptSelect, EmptyRow, FilterBar, HeadRow, matches, SearchBox, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
+import { EmptyRow, FilterBar, HeadRow, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
 import { OfficialDocument, SignatureBlock } from "@/components/hospital/OfficialDocument";
 import { RangePicker, thisMonth, type Range } from "@/components/hospital/accounting/RangePicker";
-import { EntryDialog, useJournal } from "@/components/hospital/accounting/drill";
+import { useJournal } from "@/components/hospital/accounting/drill";
 import { findDepartment } from "@/lib/hospital/constants";
 import { dateLabel, isoDate, money, monthLabel } from "@/lib/hospital/format";
-import { dailyCashFlow, ENTRY_SOURCE_LABELS, incomeStatement, type JournalEntry } from "@/lib/hospital/ledger";
-import { revenueExpenseCsv, revenueExpenseReport, type Block, type DetailLine, type Group } from "@/lib/hospital/income-expense";
+import { dailyCashFlow, incomeStatement } from "@/lib/hospital/ledger";
+import { revenueExpenseCsv, revenueExpenseReport, type Group } from "@/lib/hospital/income-expense";
+import { CashDetails } from "@/components/hospital/finance/CashDetails";
 import { useHospitalDB } from "@/lib/hospital/store";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +46,6 @@ function RevenuesExpensesPage() {
   const db = useHospitalDB();
   const [range, setRange] = useState<Range>(thisMonth);
   const [tab, setTab] = useState<Tab>("summary");
-  const [entry, setEntry] = useState<JournalEntry | null>(null);
   const { entries, accounts } = useJournal(range.to);
   const centerName = (id: string) => findDepartment(db.departments, id).name;
   const report = useMemo(
@@ -59,7 +59,6 @@ function RevenuesExpensesPage() {
     Math.abs(income.totalRevenue - report.revenue.total) < 0.01 && Math.abs(income.totalExpenses - report.totalExpenses) < 0.01;
   const pdf = usePdfExport();
   const scope = `من ${dateLabel(range.from)} إلى ${dateLabel(range.to)}`;
-  const openEntry = (id: string) => setEntry(entries.find((e) => e.id === id) ?? null);
 
   function exportCsv() {
     const url = URL.createObjectURL(new Blob([revenueExpenseCsv(report, centerName)], { type: "text/csv;charset=utf-8" }));
@@ -145,17 +144,15 @@ function RevenuesExpensesPage() {
         </TabsContent>
 
         <TabsContent value="revenue">
-          <DetailTable block={report.revenue} kind="revenue" onOpen={openEntry} />
+          <CashDetails tab="revenue" from={range.from} to={range.to} ledgerTotal={report.revenue.total} />
         </TabsContent>
         <TabsContent value="expenses">
-          <DetailTable block={report.expenses} kind="expense" onOpen={openEntry} />
+          <CashDetails tab="expenses" from={range.from} to={range.to} ledgerTotal={report.expenses.total} />
         </TabsContent>
         <TabsContent value="petty">
-          <DetailTable block={report.petty} kind="petty" onOpen={openEntry} />
+          <CashDetails tab="petty" from={range.from} to={range.to} ledgerTotal={report.petty.total} />
         </TabsContent>
       </Tabs>
-
-      <EntryDialog entry={entry} onClose={() => setEntry(null)} />
 
       <OfficialDocument ref={pdf.ref} settings={db.settings} title={TAB_TITLE[tab]} subtitle={scope} issuedOn={dateLabel(isoDate(new Date()))} orientation="landscape">
         {tab === "summary" ? (
@@ -337,91 +334,6 @@ function MonthsTable({ months }: { months: ReturnType<typeof revenueExpenseRepor
         </tbody>
       </TableCard>
     </section>
-  );
-}
-
-function DetailTable({ block, kind, onOpen }: { block: Block; kind: "revenue" | "expense" | "petty"; onOpen: (entryId: string) => void }) {
-  const db = useHospitalDB();
-  const [query, setQuery] = useState("");
-  const [center, setCenter] = useState("all");
-  const [account, setAccount] = useState("all");
-  const rows = useMemo(
-    () =>
-      block.lines.filter(
-        (l: DetailLine) =>
-          (center === "all" || l.costCenter === center) &&
-          (account === "all" || l.account === account) &&
-          matches(query, l.description, l.number, l.accountLabel),
-      ),
-    [block.lines, center, account, query],
-  );
-  const total = rows.reduce((s, l) => s + l.amount, 0);
-  return (
-    <>
-      <FilterBar>
-        <SearchBox value={query} onChange={setQuery} placeholder="البيان أو رقم المستند" className="md:flex-1" />
-        <DeptSelect value={center} onChange={setCenter} allowAll className="md:w-56" label="مركز التكلفة" />
-        <div className="flex flex-wrap gap-1.5">
-          <button type="button" className={cn("chip-filter", account === "all" && "chip-filter-active")} onClick={() => setAccount("all")}>
-            كل الحسابات
-          </button>
-          {block.byAccount.map((g) => (
-            <button key={g.id} type="button" className={cn("chip-filter", account === g.id && "chip-filter-active")} onClick={() => setAccount(g.id)}>
-              {g.label}
-            </button>
-          ))}
-        </div>
-      </FilterBar>
-      <TableCard minWidth={940}>
-        <thead>
-          <HeadRow>
-            <Th>التاريخ</Th>
-            <Th>رقم المستند</Th>
-            <Th>البيان</Th>
-            <Th>{kind === "petty" ? "البند" : "الحساب"}</Th>
-            <Th>القسم</Th>
-            <Th>المصدر</Th>
-            <Th num>المبلغ</Th>
-          </HeadRow>
-        </thead>
-        <tbody>
-          {rows.map((l) => (
-            <tr key={l.id} className="border-b last:border-0 hover:bg-muted/50">
-              <Td num className="text-right">{dateLabel(l.date)}</Td>
-              <Td className="font-mono text-xs">
-                <button type="button" className="drill-link" dir="ltr" onClick={() => onOpen(l.entryId)} title="فتح القيد">
-                  {l.number}
-                </button>
-              </Td>
-              <Td>{l.description}</Td>
-              <Td className="text-xs">{l.accountLabel}</Td>
-              <Td className="text-xs">{l.costCenter ? findDepartment(db.departments, l.costCenter).name : "—"}</Td>
-              <Td className="text-[11px] text-muted-foreground">{ENTRY_SOURCE_LABELS[l.source]}</Td>
-              <Td num className={cn("font-semibold", l.amount < 0 ? "text-destructive" : kind === "revenue" ? "text-income" : "text-expense")}>
-                {money(l.amount)}
-              </Td>
-            </tr>
-          ))}
-          {!rows.length && <EmptyRow cols={7} text="مفيش قيود مطابقة في الفترة دي." />}
-          {rows.length > 0 && (
-            <tr className="border-t-2 bg-muted/40 font-bold">
-              <Td colSpan={6}>الإجمالي ({rows.length} قيد)</Td>
-              <Td num>{money(total)}</Td>
-            </tr>
-          )}
-        </tbody>
-      </TableCard>
-      {kind === "revenue" && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          الإيراد بيتسجل يوم الإيصال بقيمته كاملة (النقدي + نصيب التأمين + الآجل). المرتجعات بتظهر بالسالب. تحصيل التأمين والآجل وتأمينات المرضى المقيمين مش إيراد جديد — دي حركة نقدية بس.
-        </p>
-      )}
-      {kind === "expense" && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          المصروفات على أساس الاستحقاق: فاتورة المورد الآجلة مصروف يوم الفاتورة وسدادها بعدين مش مصروف تاني. السلف ورد التأمينات مش مصروفات.
-        </p>
-      )}
-    </>
   );
 }
 

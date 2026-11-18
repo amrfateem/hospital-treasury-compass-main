@@ -2,7 +2,7 @@
  * Builds a signed offline update folder for the current production build.
  * Output: release/updates/<version>/  (copy it to <app>\Updates on the hospital server).
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
+import { cpSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -17,6 +17,13 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(payload, { recursive: true });
 cpSync(join(root, ".output", "server"), join(payload, "server"), { recursive: true });
 cpSync(join(root, ".output", "public"), join(payload, "public"), { recursive: true });
+
+// The desktop shell carries the download and direct-print fixes, so it travels with the update.
+for (const name of ["AlRahmaHospital.exe", "WebView2Loader.dll"]) {
+  const from = join(root, "release", "AlRahmaHospital", name);
+  if (!existsSync(from)) throw new Error(`${name} is missing from the packaged server folder.`);
+  copyFileSync(from, join(payload, name));
+}
 
 function walk(dir, base = dir) {
   const files = [];
@@ -70,9 +77,10 @@ writeFileSync(
   `Al-Rahma Hospital update ${version}\n\n` +
     `1) Copy this whole folder to <application folder>\\Updates (replace the old contents).\n` +
     `2) The nightly SYSTEM task applies it at 3am or on next boot.\n` +
-    `3) For tray-only mode, run apply-update.ps1 as administrator.\n` +
+    `3) For tray-only mode, close the app and run apply-update.ps1 as administrator.\n` +
     `4) A database backup is written under Backups\\pre-update-* before switching.\n` +
-    `5) The previous server/public folders stay as *.old-${version} for rollback.\n\n` +
+    `5) The previous server/public folders and the old exe stay as *.old-${version} for rollback.\n` +
+    `6) Client PCs need the new exe too; copy client-${version} (or the updated client folder) there.\n\n` +
     `Signed: ${signed}\nFiles: ${files.length}\n`,
 );
 

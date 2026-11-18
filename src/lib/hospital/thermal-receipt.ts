@@ -129,7 +129,7 @@ export function thermalReceiptHtml(
 <style>
 @font-face { font-family: Tajawal; font-style: normal; font-weight: 400; src: url(${tajawal400}) format("woff2"); font-display: swap; }
 @font-face { font-family: Tajawal; font-style: normal; font-weight: 700; src: url(${tajawal700}) format("woff2"); font-display: swap; }
-@page { size: ${opts.width}mm auto; margin: 0; }
+@page { margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; color: #000; }
 body { width: ${opts.width}mm; font-family: Tajawal, Tahoma, Arial, sans-serif; font-size: ${narrow ? 10.5 : 12}px; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -168,12 +168,17 @@ footer p { margin: 4px 0; } .ornament { font-size: 13px; letter-spacing: 4px; }
 }
 
 /** Prints a standalone HTML page through a hidden iframe (opens the browser print window). */
-export function printHtml(html: string): Promise<void> {
+export function printHtml(html: string, widthMm: number): Promise<void> {
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
-    const cleanup = () => setTimeout(() => frame.remove(), 1000);
+    let removed = false;
+    const cleanup = () => {
+      if (removed) return;
+      removed = true;
+      setTimeout(() => frame.remove(), 500);
+    };
     frame.onload = async () => {
       const win = frame.contentWindow;
       const doc = frame.contentDocument;
@@ -184,10 +189,23 @@ export function printHtml(html: string): Promise<void> {
       } catch {
         /* print with the fallback font */
       }
+      // Chromium ignores `size: 80mm auto` and falls back to A4, which the thermal driver then
+      // shrinks to a tiny strip. An explicit two-length page size is honoured, so measure the
+      // first slip and send exactly one slip per page.
+      const slip = doc.querySelector<HTMLElement>(".slip");
+      const pxPerMm = 96 / 25.4;
+      const heightMm = Math.max(
+        40,
+        Math.ceil(((slip?.getBoundingClientRect().height ?? 240) + 2) / pxPerMm),
+      );
+      const page = doc.createElement("style");
+      page.textContent = `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`;
+      doc.head.appendChild(page);
       win.addEventListener("afterprint", cleanup, { once: true });
+      // Safety net if the dialog never reports afterprint.
+      setTimeout(cleanup, 180_000);
       win.focus();
       win.print();
-      cleanup();
       resolve();
     };
     frame.srcdoc = html;

@@ -23,8 +23,8 @@ if (-not (Test-Path $Payload)) { Fail "مجلد payload غير موجود." }
 
 foreach ($rel in $Hashes.Keys) {
   $file = Join-Path $Payload $rel
-  if (-not (Test-Path $file)) { Fail "ملف ناقص: $rel" }
-  $actual = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant()
+  if (-not (Test-Path -LiteralPath $file)) { Fail "ملف ناقص: $rel" }
+  $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $Hashes[$rel]) { Fail "بصمة ملف غير مطابقة: $rel" }
 }
 
@@ -44,6 +44,8 @@ if ($service) {
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -and $_.CommandLine -like "*$AppDir*server*index.mjs*" } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Get-Process -Name "AlRahmaHospital" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
 
 foreach ($name in @("server", "public")) {
   $current = Join-Path $AppDir $name
@@ -51,6 +53,17 @@ foreach ($name in @("server", "public")) {
   if (Test-Path $old) { Remove-Item $old -Recurse -Force }
   if (Test-Path $current) { Rename-Item -Path $current -NewName (Split-Path $old -Leaf) }
   Copy-Item -Path (Join-Path $Payload $name) -Destination $current -Recurse
+}
+
+$rootFiles = @("AlRahmaHospital.exe", "WebView2Loader.dll")
+foreach ($name in $rootFiles) {
+  $source = Join-Path $Payload $name
+  if (-not (Test-Path $source)) { continue }
+  $current = Join-Path $AppDir $name
+  $old = Join-Path $AppDir ("$name.old-" + $Version)
+  if (Test-Path $old) { Remove-Item $old -Force }
+  if (Test-Path $current) { Move-Item -Path $current -Destination $old -Force }
+  Copy-Item -Path $source -Destination $current -Force
 }
 
 function Start-Server {
@@ -81,13 +94,20 @@ if (-not $ok) {
       Rename-Item -Path $old -NewName $name
     }
   }
+  foreach ($name in $rootFiles) {
+    $old = Join-Path $AppDir ("$name.old-" + $Version)
+    if (Test-Path $old) {
+      Remove-Item (Join-Path $AppDir $name) -Force -ErrorAction SilentlyContinue
+      Move-Item -Path $old -Destination (Join-Path $AppDir $name) -Force
+    }
+  }
   Get-ChildItem -Path $Backup -Filter "hospital.db*" | Copy-Item -Destination (Join-Path $AppDir "data") -Force
   Start-Server
   Fail "لم يستجب السيرفر بعد التحديث وتمت الاستعادة."
 }
 
 Write-Host "تم تحديث النظام إلى $Version بنجاح." -ForegroundColor Green
-Write-Host "النسخة السابقة محفوظة بجانب المجلدات باسم server.old-$Version و public.old-$Version."
+Write-Host "النسخة السابقة محفوظة بجانب المجلدات باسم server.old-$Version و public.old-$Version و AlRahmaHospital.exe.old-$Version."
 Set-Content -Path (Join-Path $PSScriptRoot "applied.txt") -Value ("{0} at {1}" -f $Version, (Get-Date -Format s)) -Encoding UTF8
 Rename-Item -Path (Join-Path $PSScriptRoot "apply-update.ps1") -NewName ("applied-$Version.ps1") -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $PSScriptRoot "payload") -Recurse -Force -ErrorAction SilentlyContinue

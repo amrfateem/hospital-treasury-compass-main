@@ -10,10 +10,20 @@ export interface ReceiptPrinterPrefs {
   copies: number;
   /** Print on the receipt printer right after a new receipt is saved. */
   autoPrint: boolean;
+  /** Windows printer chosen on this device for direct (silent) printing. */
+  printer: string;
+  /** Use the native silent printer command when the desktop shell provides it. */
+  silent: boolean;
 }
 
 const KEY = "hospital.receiptPrinter.v1";
-export const DEFAULT_PRINTER: ReceiptPrinterPrefs = { width: 80, copies: 1, autoPrint: true };
+export const DEFAULT_PRINTER: ReceiptPrinterPrefs = {
+  width: 80,
+  copies: 1,
+  autoPrint: true,
+  printer: "",
+  silent: true,
+};
 
 function read(): ReceiptPrinterPrefs {
   try {
@@ -24,6 +34,8 @@ function read(): ReceiptPrinterPrefs {
       width: p.width === 58 ? 58 : 80,
       copies: Math.min(3, Math.max(1, Number(p.copies) || 1)),
       autoPrint: p.autoPrint ?? DEFAULT_PRINTER.autoPrint,
+      printer: typeof p.printer === "string" ? p.printer : "",
+      silent: p.silent ?? DEFAULT_PRINTER.silent,
     };
   } catch {
     return DEFAULT_PRINTER;

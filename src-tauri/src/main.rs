@@ -2,9 +2,10 @@
 
 use std::{
     env,
-    fs::{create_dir_all, OpenOptions},
+    ffi::OsStr,    fs::{create_dir_all, OpenOptions},
     io::Write,
     net::TcpStream,
+    os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -12,12 +13,19 @@ use std::{
     time::Duration,
 };
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
+    webview::{DownloadEvent, PermissionKind, PermissionResponse},
     Manager, RunEvent, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use windows_sys::Win32::Graphics::Printing::{
+    ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
+    StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W, PRINTER_ENUM_CONNECTIONS,
+    PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_4W,
+};
 
 struct ServerState {
     child: Mutex<Option<Child>>,
@@ -133,6 +141,264 @@ fn chrono_like() -> String {
     format!("unix:{now}")
 }
 
+fn exports_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .document_dir()
+        .or_else(|_| app.path().download_dir())
+        .unwrap_or_else(|_| app_dir())
+        .join("AlRahmaHospital")
+        .join("Exports")
+}
+
+fn safe_file_name(name: &OsStr) -> String {
+    let cleaned: String = name
+        .to_string_lossy()
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if (c as u32) < 32 => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "export".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or("export");
+    let ext = path.extension().and_then(OsStr::to_str);
+    for n in 2..10_000 {
+        let next = match ext {
+            Some(ext) => dir.join(format!("{stem} ({n}).{ext}")),
+            None => dir.join(format!("{stem} ({n})")),
+        };
+        if !next.exists() {
+            return next;
+        }
+    }
+    dir.join(format!("{stem}-{}", chrono_like()))
+}
+
+fn log_line(file: &str, text: &str) {
+    let dir = app_dir().join("data").join("logs");
+    let _ = create_dir_all(&dir);
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(dir.join(file)) {
+        let _ = writeln!(f, "[{}] {}", chrono_like(), text);
+    }
+}
+
+fn wide(s: &str) -> Vec<u16> {
+    OsStr::new(s).encode_wide().chain(Some(0)).collect()
+}
+
+unsafe fn pwstr_to_string(p: *const u16) -> String {
+    if p.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    while *p.add(len) != 0 {
+        len += 1;
+    }
+    String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+}
+
+#[tauri::command]
+fn list_printers() -> Result<Vec<String>, String> {
+    let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+    let mut needed = 0u32;
+    let mut returned = 0u32;
+    unsafe {
+        EnumPrintersW(
+            flags,
+            std::ptr::null(),
+            4,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+            &mut returned,
+        );
+    }
+    if needed == 0 {
+        return Ok(Vec::new());
+    }
+    let mut buffer = vec![0u8; needed as usize + 1024];
+    let ok = unsafe {
+        EnumPrintersW(
+            flags,
+            std::ptr::null(),
+            4,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+            &mut needed,
+            &mut returned,
+        )
+    };
+    if ok == 0 {
+        return Err(format!(
+            "تعذّر قراءة قائمة الطابعات: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let infos = unsafe {
+        std::slice::from_raw_parts(buffer.as_ptr() as *const PRINTER_INFO_4W, returned as usize)
+    };
+    let mut names = Vec::new();
+    for info in infos {
+        let name = unsafe { pwstr_to_string(info.pPrinterName) };
+        if !name.is_empty() {
+            names.push(name);
+        }
+    }
+    names.sort_by_key(|n| n.to_lowercase());
+    names.dedup();
+    Ok(names)
+}
+
+#[tauri::command]
+fn default_printer() -> Result<String, String> {
+    let mut size = 0u32;
+    unsafe {
+        GetDefaultPrinterW(std::ptr::null_mut(), &mut size);
+    }
+    if size == 0 {
+        return Ok(String::new());
+    }
+    let mut buffer = vec![0u16; size as usize + 1];
+    let ok = unsafe { GetDefaultPrinterW(buffer.as_mut_ptr(), &mut size) };
+    if ok == 0 {
+        return Ok(String::new());
+    }
+    Ok(unsafe { pwstr_to_string(buffer.as_ptr()) })
+}
+
+fn send_raw(printer: &str, bytes: &[u8]) -> Result<(), String> {
+    if printer.trim().is_empty() {
+        return Err("اختر طابعة الإيصالات أولًا.".to_string());
+    }
+    let printer_w = wide(printer);
+    let mut handle = PRINTER_HANDLE::default();
+    unsafe {
+        if OpenPrinterW(printer_w.as_ptr(), &mut handle, std::ptr::null()) == 0 {
+            return Err(format!(
+                "تعذّر فتح الطابعة «{printer}»: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    let mut doc_name = wide("Al-Rahma receipt");
+    let mut datatype = wide("RAW");
+    let doc = DOC_INFO_1W {
+        pDocName: doc_name.as_mut_ptr(),
+        pOutputFile: std::ptr::null_mut(),
+        pDatatype: datatype.as_mut_ptr(),
+    };
+    let result = unsafe {
+        let job = StartDocPrinterW(handle, 1, &doc);
+        if job == 0 {
+            Err(format!(
+                "تعذّر بدء مهمة الطباعة: {}",
+                std::io::Error::last_os_error()
+            ))
+        } else if StartPagePrinter(handle) == 0 {
+            Err(format!(
+                "تعذّر بدء صفحة الطباعة: {}",
+                std::io::Error::last_os_error()
+            ))
+        } else {
+            let mut written = 0u32;
+            let wrote = WritePrinter(
+                handle,
+                bytes.as_ptr() as *const std::ffi::c_void,
+                bytes.len() as u32,
+                &mut written,
+            );
+            let _ = EndPagePrinter(handle);
+            let _ = EndDocPrinter(handle);
+            if wrote == 0 || written as usize != bytes.len() {
+                Err(format!(
+                    "تعذّر إرسال بيانات الإيصال للطابعة: {}",
+                    std::io::Error::last_os_error()
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    };
+    unsafe {
+        let _ = ClosePrinter(handle);
+    }
+    result
+}
+
+/// Prints a pre-rendered 1-bit receipt image with ESC/POS (thermal receipt printers).
+#[tauri::command]
+fn print_receipt_raw(
+    printer: String,
+    width_bytes: u32,
+    height: u32,
+    data: String,
+    copies: u32,
+    cut: bool,
+) -> Result<(), String> {
+    if !(32..=128).contains(&width_bytes) {
+        return Err("عرض الطباعة غير صحيح.".to_string());
+    }
+    if height == 0 || height > 30_000 {
+        return Err("ارتفاع الإيصال غير صحيح.".to_string());
+    }
+    let rows = B64
+        .decode(data)
+        .map_err(|_| "بيانات الطباعة غير صحيحة.".to_string())?;
+    if rows.len() != width_bytes as usize * height as usize {
+        return Err("حجم صورة الإيصال لا يطابق الأبعاد.".to_string());
+    }
+    let copies = copies.clamp(1, 3);
+    let mut job = Vec::with_capacity(16 + copies as usize * (rows.len() + 16));
+    job.extend_from_slice(&[0x1b, 0x40]); // ESC @ init
+    for _ in 0..copies {
+        let xl = (width_bytes & 0xff) as u8;
+        let xh = ((width_bytes >> 8) & 0xff) as u8;
+        let yl = (height & 0xff) as u8;
+        let yh = ((height >> 8) & 0xff) as u8;
+        job.extend_from_slice(&[0x1d, 0x76, 0x30, 0x00, xl, xh, yl, yh]);
+        job.extend_from_slice(&rows);
+        job.extend_from_slice(&[0x1b, 0x64, 0x03]); // feed 3 lines
+        if cut {
+            job.extend_from_slice(&[0x1d, 0x56, 0x00]); // full cut
+        }
+    }
+    let printer_name = printer.clone();
+    let result = send_raw(&printer, &job);
+    match &result {
+        Ok(()) => log_line(
+            "print.log",
+            &format!("printed {} copies on {} ({}x{})", copies, printer_name, width_bytes, height),
+        ),
+        Err(e) => log_line("print.log", &format!("print failed on {printer_name}: {e}")),
+    }
+    result
+}
+
+#[tauri::command]
+fn open_exports_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = exports_dir(&app);
+    let _ = create_dir_all(&dir);
+    Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("تعذّر فتح مجلد التصدير: {e}"))?;
+    Ok(())
+}
+
 fn main() {
     let hidden = env::args().any(|a| a == "--hidden");
     let dir = app_dir();
@@ -210,6 +476,39 @@ fn main() {
             if server_mode {
                 window = window.data_directory(dir.join("data").join("browser"));
             }
+            window = window.on_permission_request(|_, kind| match kind {
+                PermissionKind::AutomaticDownloads
+                | PermissionKind::FileSystemAccess
+                | PermissionKind::ClipboardRead => PermissionResponse::Allow,
+                _ => PermissionResponse::Default,
+            });
+            window = window.on_download(|webview, event| {
+                match event {
+                    DownloadEvent::Requested { destination, .. } => {
+                        let out = exports_dir(webview.app_handle());
+                        let _ = create_dir_all(&out);
+                        let suggested = destination
+                            .file_name()
+                            .map(safe_file_name)
+                            .unwrap_or_else(|| "export".to_string());
+                        *destination = unique_path(&out, &suggested);
+                    }
+                    DownloadEvent::Finished { path, success, .. } => {
+                        log_line(
+                            "downloads.log",
+                            &format!(
+                                "{} {}",
+                                if success { "saved" } else { "failed" },
+                                path.as_ref()
+                                    .map(|p| p.display().to_string())
+                                    .unwrap_or_else(|| "-".to_string())
+                            ),
+                        );
+                    }
+                    _ => {}
+                }
+                true
+            });
             let window = window.build()?;
 
             if server_mode {
@@ -228,9 +527,10 @@ fn main() {
             let open = MenuItem::with_id(app, "open", "فتح النظام", true, None::<&str>)?;
             let backups = MenuItem::with_id(app, "backups", "مجلد النسخ الاحتياطي", true, None::<&str>)?;
             let updates = MenuItem::with_id(app, "updates", "مجلد التحديثات", true, None::<&str>)?;
+            let exports = MenuItem::with_id(app, "exports", "مجلد التصدير", true, None::<&str>)?;
             let autostart = MenuItem::with_id(app, "autostart", "بدء التشغيل مع ويندوز", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "إغلاق", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &backups, &updates, &autostart, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &backups, &updates, &exports, &autostart, &quit])?;
 
             let mut tray = TrayIconBuilder::new()
                 .tooltip("مستشفى الرحمة التخصصي")
@@ -255,6 +555,11 @@ fn main() {
                         let _ = create_dir_all(&dir);
                         let _ = Command::new("explorer").arg(dir).spawn();
                     }
+                    "exports" => {
+                        let dir = exports_dir(app);
+                        let _ = create_dir_all(&dir);
+                        let _ = Command::new("explorer").arg(dir).spawn();
+                    }
                     "autostart" => {
                         let manager = app.autolaunch();
                         let enabled = manager.is_enabled().unwrap_or(false);
@@ -268,6 +573,12 @@ fn main() {
             let _ = window.set_focus();
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            list_printers,
+            default_printer,
+            print_receipt_raw,
+            open_exports_folder
+        ])
         .build(tauri::generate_context!())
         .expect("error while building the application");
 

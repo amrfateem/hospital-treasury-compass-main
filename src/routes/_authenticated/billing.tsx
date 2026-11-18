@@ -33,6 +33,7 @@ import { invoiceAmounts } from "@/lib/hospital/finance";
 import { patientMoney } from "@/lib/hospital/patient-money";
 import { exportedIds, invoiceContext } from "@/lib/hospital/invoice-export";
 import { useReceiptPrinter } from "@/lib/hospital/receipt-printer";
+import { isNativePrint, printReceiptNative } from "@/lib/hospital/native-print";
 import { printHtml, thermalReceiptHtml } from "@/lib/hospital/thermal-receipt";
 import { needsReceiptApproval } from "@/lib/hospital/permissions";
 import {
@@ -179,9 +180,28 @@ function BillingPage() {
       reprint: !!inv.printedAt,
       printedAt: Date.now(),
     });
-    void printHtml(html).then(() => {
+    void (async () => {
+      const direct = printer.silent && !!printer.printer && isNativePrint();
+      if (direct) {
+        try {
+          await printReceiptNative(html, {
+            widthMm: printer.width,
+            copies: printer.copies,
+            printer: printer.printer,
+            cut: true,
+          });
+          if (!inv.printedAt) markInvoicePrinted(inv.id);
+          return;
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "خطأ غير معروف";
+          toast.error(`تعذّرت الطباعة المباشرة: ${message}`, {
+            description: "سنفتح نافذة الطباعة كبديل.",
+          });
+        }
+      }
+      await printHtml(html, printer.width);
       if (!inv.printedAt) markInvoicePrinted(inv.id);
-    });
+    })();
   }
 
   function testPrint() {
@@ -197,7 +217,25 @@ function BillingPage() {
       createdAt: Date.now(),
       createdBy: me?.name,
     };
-    void printHtml(thermalReceiptHtml(db, sample, { width: printer.width, copies: 1, printedAt: Date.now() }));
+    const html = thermalReceiptHtml(db, sample, { width: printer.width, copies: 1, printedAt: Date.now() });
+    void (async () => {
+      if (printer.silent && printer.printer && isNativePrint()) {
+        try {
+          await printReceiptNative(html, {
+            widthMm: printer.width,
+            copies: 1,
+            printer: printer.printer,
+            cut: true,
+          });
+          toast.success("تم إرسال الطباعة التجريبية للطابعة.");
+          return;
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "خطأ غير معروف";
+          toast.error(`تعذّرت الطباعة المباشرة: ${message}`, { description: "سنفتح نافذة الطباعة كبديل." });
+        }
+      }
+      await printHtml(html, printer.width);
+    })();
   }
 
   function askChange(inv: PatientInvoice, action: "edit" | "delete") {

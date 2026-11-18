@@ -25,9 +25,10 @@ function db() {
 }
 
 describe("thermal receipt", () => {
-  it("sets the page to the chosen roll width (80 / 58 mm)", () => {
-    expect(thermalReceiptHtml(db(), inv, { width: 80, copies: 1 })).toContain("size: 80mm auto");
-    expect(thermalReceiptHtml(db(), inv, { width: 58, copies: 1 })).toContain("size: 58mm auto");
+  it("sizes the receipt body to the chosen roll width (80 / 58 mm)", () => {
+    expect(thermalReceiptHtml(db(), inv, { width: 80, copies: 1 })).toContain("width: 80mm");
+    expect(thermalReceiptHtml(db(), inv, { width: 58, copies: 1 })).toContain("width: 58mm");
+    expect(thermalReceiptHtml(db(), inv, { width: 80, copies: 1 })).not.toContain("@page { size:");
   });
 
   it("prints the patient's share after discount and insurer split", () => {

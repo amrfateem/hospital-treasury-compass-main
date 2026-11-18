@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-shell",
+  "description": "Lets the LAN-served hospital pages use the local print and export commands",
+  "windows": ["main"],
+  "local": true,
+  "remote": {
+    "urls": ["http://alrahma.local", "http://alrahma.local/*", "http://127.0.0.1", "http://127.0.0.1/*"]
+  },
+  "permissions": [
+    "allow-list-printers",
+    "allow-default-printer",
+    "allow-print-receipt-raw",
+    "allow-open-exports-folder"
+  ]
+}
