@@ -10,8 +10,10 @@ export const Route = createFileRoute("/api/addresses")({
       GET: async () => {
         const os = await import("node:os");
         const host = process.env["ALRAHMA_HOST"] || "alrahma.local";
-        const port = Number(process.env["PORT"] || 80);
-        const suffix = port === 80 ? "" : `:${port}`;
+        const tls = !!process.env["NITRO_SSL_CERT"];
+        const port = Number(process.env["PORT"] || (tls ? 443 : 80));
+        const suffix = port === 80 || port === 443 ? "" : `:${port}`;
+        const scheme = tls ? "https" : "http";
         const ips = Object.values(os.networkInterfaces())
           .flat()
           .filter((iface) => iface?.family === "IPv4" && !iface.internal)
@@ -19,7 +21,7 @@ export const Route = createFileRoute("/api/addresses")({
         return Response.json({
           host,
           port,
-          urls: [`http://${host}${suffix}`, ...ips.map((ip) => `http://${ip}${suffix}`)],
+          urls: [`${scheme}://${host}${suffix}`, ...ips.map((ip) => `${scheme}://${ip}${suffix}`)],
         });
       },
     },

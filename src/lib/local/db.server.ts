@@ -5,6 +5,10 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { dataDir, dbFile } from "./paths.server";
+import { prepareDatabaseFile } from "./recovery.server";
+
+export { dataDir, filesDir } from "./paths.server";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -179,22 +183,20 @@ CREATE INDEX IF NOT EXISTS lab_orders_status_idx ON lab_orders (status, ordered_
 let database: DatabaseSync | null = null;
 const statements = new Map<string, StatementSync>();
 
-/** Where the live data lives. Overridden by the Tauri shell/service. */
-export function dataDir(): string {
-  return process.env["ALRAHMA_DATA_DIR"] || join(process.cwd(), ".data");
-}
-
-export function filesDir(): string {
-  return join(dataDir(), "files");
-}
-
 export function db(): DatabaseSync {
   if (database) return database;
   const dir = dataDir();
   mkdirSync(join(dir, "files"), { recursive: true });
-  const d = new DatabaseSync(join(dir, "hospital.db"));
+  // A damaged or missing file is replaced by the newest healthy backup before anything opens it.
+  try {
+    prepareDatabaseFile();
+  } catch (e) {
+    console.error("[alrahma] database check failed", e);
+  }
+  const d = new DatabaseSync(dbFile());
   d.exec("PRAGMA journal_mode = WAL");
-  d.exec("PRAGMA synchronous = NORMAL");
+  // FULL: a saved entry is on the disk before the save is confirmed, so a power cut never loses it.
+  d.exec("PRAGMA synchronous = FULL");
   d.exec("PRAGMA foreign_keys = ON");
   d.exec("PRAGMA busy_timeout = 8000");
   d.exec(SCHEMA);

@@ -1,17 +1,21 @@
 # Al-Rahma Specialized Hospital — portable treasury system
 
 Standalone Windows build of the hospital accounting, treasury, payroll, patient and stock
-system. It runs from a USB drive on the hospital LAN as `http://alrahma.local` (no port).
+system. It runs from a USB drive on the hospital LAN as `https://alrahma.local` (no port).
 
 ## What is inside
 
 - **Server PC**: `release/AlRahmaHospital` — Tauri shell, bundled Node runtime, bundled
   WebView2, SQLite data, daily backups, local accounts.
 - **Client PCs**: `release/AlRahmaHospital-client` — the same Tauri shell with
-  `client.json` pointing at `http://alrahma.local`; no database or Node sidecar.
+  `client.json` pointing at `https://alrahma.local`; no database or Node sidecar.
 - **Slim build**: uses the Windows Edge WebView2 that ships with Windows 10/11
   (server ~115 MB, client ~5 MB). If a PC lacks WebView2, install the official
   Microsoft Edge WebView2 Runtime once.
+- **Legacy import**: Settings → Backup → «رفع نسخة السيستم القديم» imports the old
+  system's `.sql` backup after a safety backup, keeps every source row for review, and
+  refuses unconfirmed financial guesses. Large dumps run on the server and block other
+  users while importing.
 - **Updates**: `release/updates/<version>` — a signed offline update package that also
   replaces `AlRahmaHospital.exe` (printing/download fixes live in the desktop shell). Client
   PCs get the same exe from `release/client-<version>`.
@@ -46,7 +50,7 @@ target PCs do not depend on a host runtime. Set `NO_WEBVIEW2=1` to skip it durin
 
 1. Copy `release/AlRahmaHospital` to the USB drive.
 2. Run `AlRahmaHospital.exe` on the server PC; create the first director account.
-3. Open `http://alrahma.local` from a client PC. After signing in, the top bar shows this
+3. Open `https://alrahma.local` from a client PC. After signing in, the top bar shows this
    address with a copy button, plus the server's LAN IP to use when multicast is blocked.
 4. Optional unattended mode: right-click `install-service.ps1` → *Run as administrator*.
    This installs the headless server as a Windows service, adds the firewall rules, trusts
@@ -108,7 +112,7 @@ The tool updates the same scrypt hash and clears that user's sessions. The Windo
 
 - The server PC must keep the USB plugged in while staff are working.
 - Port 80 must be free on the server PC.
-- The client URL is `http://alrahma.local`; if multicast is blocked, use the server hostname
+- The client URL is `https://alrahma.local`; if multicast is blocked, use the server hostname
   or IP (also without a port) and update `client.json`.
 - AI invoice reading needs an internet connection and a Lovable/OpenAI key; it is disabled
   in this offline build.

@@ -1,4 +1,4 @@
-# Al-Rahma Hospital - install the headless server as a Windows service.
+﻿# Al-Rahma Hospital - install the headless server as a Windows service.
 # Run as Administrator. The application folder may stay on the USB drive.
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
@@ -8,7 +8,8 @@ $ServiceName = "AlRahmaHospital"
 $ServiceHome = Join-Path $env:ProgramFiles "AlRahmaHospital"
 $WinswSource = Join-Path $AppDir "AlRahmaService.exe"
 $NodeExe = Join-Path $AppDir "node.exe"
-$ServerEntry = Join-Path $AppDir "server\index.mjs"
+$ServerEntry = Join-Path $AppDir "server\tls-entry.mjs"
+if (-not (Test-Path $ServerEntry)) { $ServerEntry = Join-Path $AppDir "server\index.mjs" }
 $BackupDir = Join-Path $env:PUBLIC "Documents\AlRahmaHospitalBackups\$env:COMPUTERNAME"
 $RootCert = Join-Path $AppDir "trust\AlRahmaRoot.cer"
 $Version = "0.1.0"
@@ -36,7 +37,7 @@ $xml = @"
   <workingdirectory>$(XmlEsc $AppDir)</workingdirectory>
   <env name="NODE_ENV" value="production"/>
   <env name="ALRAHMA_APP" value="1"/>
-  <env name="PORT" value="80"/>
+  <env name="PORT" value="443"/>
   <env name="HOST" value="0.0.0.0"/>
   <env name="ALRAHMA_HOST" value="alrahma.local"/>
   <env name="ALRAHMA_MDNS" value="1"/>
@@ -62,7 +63,9 @@ $cfg = Join-Path $ServiceHome "AlRahmaService.xml"
 
 # Firewall: HTTP and mDNS, local network only.
 netsh advfirewall firewall delete rule name="AlRahma Hospital HTTP" 2>$null | Out-Null
+netsh advfirewall firewall delete rule name="AlRahma Hospital HTTPS" 2>$null | Out-Null
 netsh advfirewall firewall delete rule name="AlRahma Hospital mDNS" 2>$null | Out-Null
+netsh advfirewall firewall add rule name="AlRahma Hospital HTTPS" dir=in action=allow protocol=TCP localport=443 profile=private,domain | Out-Null
 netsh advfirewall firewall add rule name="AlRahma Hospital HTTP" dir=in action=allow protocol=TCP localport=80 profile=private,domain | Out-Null
 netsh advfirewall firewall add rule name="AlRahma Hospital mDNS" dir=in action=allow protocol=UDP localport=5353 profile=private,domain | Out-Null
 
@@ -83,7 +86,7 @@ Register-ScheduledTask -TaskName "AlRahmaHospitalUpdate" -Action $updateAction -
 
 Write-Host ""
 Write-Host "Al-Rahma Hospital server installed as a Windows service." -ForegroundColor Green
-Write-Host "Clients open:  http://alrahma.local"
+Write-Host "Clients open:  https://alrahma.local"
 Write-Host "Data folder:   $AppDir\data"
 Write-Host "Backups:       $BackupDir"
 Write-Host "Service logs:  $AppDir\data\logs"

@@ -2,41 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireAuth } from "./auth-middleware";
 import type { Me } from "./me";
 import type { HospitalDB } from "./model";
-import { OPS, OpError, runOp, viewFor, type OpName } from "./ops";
+import { OPS, OpError, runOp, type OpName } from "./ops";
 
 export type { Me };
 
 const state = () => import("./state.server");
-
-export const getHospitalState = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .handler(async ({ context }) => {
-    const { db, version } = await (await state()).readState();
-    return { ok: true as const, me: context.me, version, db: viewFor(db, context.me) };
-  });
-
-/**
- * Only the pieces that changed since the device's version (already filtered for the caller).
- * `full: true` asks the device to reload everything (too many changes, or it is ahead).
- */
-export const getHospitalChanges = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .inputValidator((d: { since: number }) => {
-    if (!d || typeof d.since !== "number" || !Number.isFinite(d.since)) throw new Error("Bad version");
-    return d;
-  })
-  .handler(async ({ data, context }) => {
-    const s = await state();
-    const { db, version } = await s.readState();
-    if (data.since === version)
-      return { ok: true as const, full: false as const, me: context.me, version, chunks: {} as never };
-    if (data.since > version) return { ok: true as const, full: true as const, me: context.me, version };
-    const keys = await s.changedKeysSince(data.since);
-    if (!keys) return { ok: true as const, full: true as const, me: context.me, version };
-    const { pickChunks } = await import("./chunks.view");
-    const chunks = pickChunks(viewFor(db, context.me), keys);
-    return { ok: true as const, full: false as const, me: context.me, version, chunks: chunks as never };
-  });
 
 /** Work outside the document that must follow some operations (after they are saved). */
 async function afterOp(op: string, args: unknown, before: HospitalDB) {

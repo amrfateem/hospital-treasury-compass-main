@@ -1,4 +1,4 @@
-import { FolderOpen, Loader2, Minus, Plus, Search, Trash2, X } from "lucide-react";
+import { FolderOpen, Loader2, Minus, Plus, Search, Stethoscope, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { findPatientsForBilling, openPatientFromBilling, type PatientRefLite } from "@/lib/medical/medical.functions";
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DeptSelect, FieldRow, matches } from "@/components/hospital/kit";
-import { isBank, boxForDepartment, findBox } from "@/lib/hospital/model";
+import { isBank, isCashBox, boxForDepartment } from "@/lib/hospital/model";
 import { isDeskRole } from "@/lib/hospital/permissions";
 import { CLINICAL_GROUPS, findDepartment } from "@/lib/hospital/constants";
 import {
@@ -48,7 +48,15 @@ import {
 import { cn } from "@/lib/utils";
 import { DESK_ICONS } from "./desks";
 
-type ItemDraft = { description: string; qty: string; unitPrice: string; kind?: ServiceKind | undefined; stockItemId?: string | undefined };
+type ItemDraft = {
+  description: string;
+  qty: string;
+  unitPrice: string;
+  kind?: ServiceKind | undefined;
+  stockItemId?: string | undefined;
+  /** The doctor who asked for / did this intervention, when not the receipt's doctor. */
+  doctorId?: string | undefined;
+};
 /** A price-list entry; pharmacy entries are store items (sold out of stock). */
 type CatalogEntry = ServiceItem & { stockItemId?: string | undefined; balance?: number | undefined; unit?: string | undefined };
 const emptyItem = (): ItemDraft => ({ description: "", qty: "1", unitPrice: "" });
@@ -105,9 +113,13 @@ export function InvoiceDialog({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogGroup, setCatalogGroup] = useState("all");
   const [error, setError] = useState("");
+  /** Treasury picked by hand ("" = the department's default: ICU → ICU, others → main). */
+  const [cashBoxId, setCashBoxId] = useState("");
 
   const desk = RECEIPT_DESKS.find((d) => d.key === deskKey)!;
   const department = desk.deptId ?? otherDept;
+  const cashBoxes = db.cashboxes.filter((b) => isCashBox(b) && (b.active || b.id === cashBoxId));
+  const receiptBox = cashBoxId || boxForDepartment(department);
 
   function stayDefaults(dept: string) {
     const r = stayRates(lists.services, dept);
@@ -136,6 +148,7 @@ export function InvoiceDialog({
     setDate(invoice?.date ?? isoDate(new Date()));
     setPaymentMethod(invoice?.paymentMethod ?? lists.paymentMethods[0]?.id ?? "cash");
     setBankId(invoice?.boxId && db.cashboxes.find((b) => b.id === invoice.boxId && isBank(b)) ? invoice.boxId : "");
+    setCashBoxId(invoice?.boxId && db.cashboxes.some((b) => b.id === invoice.boxId && isCashBox(b)) ? invoice.boxId : "");
     setItems(
       invoice?.items.length
         ? invoice.items.map((i) => ({
@@ -144,6 +157,7 @@ export function InvoiceDialog({
             unitPrice: String(i.unitPrice),
             kind: i.kind,
             stockItemId: i.stockItemId,
+            doctorId: i.doctorId,
           }))
         : [emptyItem()],
     );
@@ -250,6 +264,7 @@ export function InvoiceDialog({
     unitPrice: Number(i.unitPrice) || 0,
     kind: i.kind,
     stockItemId: i.stockItemId,
+    ...(i.doctorId ? { doctorId: i.doctorId } : {}),
   }));
   const payer = payerId !== NONE ? lists.payers.find((p) => p.id === payerId) : undefined;
   const stayInput = desk.stay
@@ -317,6 +332,12 @@ export function InvoiceDialog({
   const sectionServices: CatalogEntry[] = desk.pharmacy ? [...pharmacyItems, ...deskServices] : deskServices;
   const catalogFor = (it: ItemDraft) =>
     findDeskService(it.description, sectionServices, sharedServices) as CatalogEntry | undefined;
+  /** The line is an intervention that earns the requesting / performing doctor a share. */
+  const lineHasShare = (it: ItemDraft) => {
+    if (it.stockItemId) return false;
+    const svc = catalogFor(it);
+    return !!svc && !svc.stockItemId && (svc.doctorShare?.value ?? 0) > 0;
+  };
   const allGroups = useMemo(() => {
     const groups = new Map<string, CatalogEntry[]>();
     for (const s of sectionServices) {
@@ -362,8 +383,17 @@ export function InvoiceDialog({
   );
   /** Operating theatre: the surgical specialty whose operations are added to the list. */
   const specialties = departments.filter((d) => d.group === "surgical" && d.active && !["surgery", "anesthesia"].includes(d.id));
+  /** Clinics desk: a clinic with its own doctors lists only them, so each receipt lands on the right doctor. */
+  const doctorsOf = (clinic: string) => doctors.filter((d) => d.active && d.department === clinic);
+  const clinicDoctors = desk.clinic && clinicId !== NONE ? doctorsOf(clinicId) : [];
+  function pickClinic(v: string) {
+    setClinicId(v);
+    const own = desk.clinic ? doctorsOf(v) : [];
+    if (own.length === 1) setDoctorId(own[0]!.id);
+    else if (own.length && !own.some((d) => d.id === doctorId)) setDoctorId(NONE);
+  }
   const activeDoctors = doctors
-    .filter((d) => d.active || d.id === doctorId)
+    .filter((d) => (clinicDoctors.length ? d.active && d.department === clinicId : d.active) || d.id === doctorId)
     .sort(
       (a, b) =>
         Number(b.department === department || b.department === clinicId) -
@@ -377,6 +407,15 @@ export function InvoiceDialog({
     if (!patientName.trim()) return setError("اكتب اسم المريض.");
     if (!department) return setError("اختر القسم أولًا.");
     if (desk.clinic && clinicId === NONE) return setError("اختر العيادة التخصصية.");
+    if (clinicDoctors.length && doctorId === NONE)
+      return setError("اختر طبيب العيادة — نسبته في آخر الشهر بتتحسب من الإيصالات المسجلة باسمه.");
+    const noDoctor = items.find(
+      (it) => it.description.trim() && lineHasShare(it) && !it.doctorId && doctorId === NONE,
+    );
+    if (noDoctor)
+      return setError(
+        `«${noDoctor.description.trim()}» ليها حق للطبيب — اختر الطبيب اللي طلبها أو عملها عشان حقه ما يضيعش.`,
+      );
     if (desk.stay) {
       if (!stay.admitDate) return setError("اكتب تاريخ الدخول.");
       if (stay.dischargeDate && stay.dischargeDate < stay.admitDate)
@@ -421,7 +460,7 @@ export function InvoiceDialog({
         items: valid,
         discount: Number(discount) || 0,
         paymentMethod,
-        ...(bankId ? { boxId: bankId } : {}),
+        boxId: bankId || receiptBox,
         notes: notes.trim() || undefined,
         kind: desk.stay ? "inpatient" : "outpatient",
         stay: stayInput ? { ...stayInput, room: stay.room.trim() || undefined } : undefined,
@@ -541,7 +580,7 @@ export function InvoiceDialog({
               )}
               {desk.clinic && (
                 <FieldRow label="العيادة التخصصية">
-                  <Select value={clinicId} onValueChange={setClinicId}>
+                  <Select value={clinicId} onValueChange={pickClinic}>
                     <SelectTrigger aria-label="العيادة التخصصية">
                       <SelectValue placeholder="اختر العيادة" />
                     </SelectTrigger>
@@ -581,13 +620,15 @@ export function InvoiceDialog({
                 </FieldRow>
               )}
               {activeDoctors.length > 0 && (
-                <FieldRow label={desk.stay ? "الطبيب المشرف" : desk.surgery ? "الجراح" : "الطبيب المعالج"}>
+                <FieldRow label={desk.stay ? "الطبيب المشرف" : desk.surgery ? "الجراح" : clinicDoctors.length ? "طبيب العيادة" : "الطبيب المعالج"}>
                   <Select value={doctorId} onValueChange={setDoctorId}>
                     <SelectTrigger aria-label="الطبيب">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent dir="rtl">
-                      <SelectItem value={NONE}>بدون طبيب محدد</SelectItem>
+                      <SelectItem value={NONE} disabled={clinicDoctors.length > 0}>
+                        {clinicDoctors.length ? "اختر الطبيب" : "بدون طبيب محدد"}
+                      </SelectItem>
                       {activeDoctors.map((d) => (
                         <SelectItem key={d.id} value={d.id}>
                           د. {d.name} — {d.specialty}
@@ -634,12 +675,19 @@ export function InvoiceDialog({
                 </Select>
               </FieldRow>
               <FieldRow label="الخزينة اللي استلمت الفلوس">
-                <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm font-semibold">
-                  {findBox(db, boxForDepartment(department)).name}
-                  <span className="ms-auto text-[11px] font-normal text-muted-foreground">
-                    تلقائي حسب القسم
-                  </span>
-                </div>
+                <Select value={receiptBox} onValueChange={(v) => setCashBoxId(v === boxForDepartment(department) ? "" : v)}>
+                  <SelectTrigger aria-label="الخزينة">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    {cashBoxes.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                        {b.id === boxForDepartment(department) ? " (الافتراضي للقسم)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </FieldRow>
               {picksBank && department !== "icu" && db.cashboxes.some((b) => isBank(b) && b.active) && (
                 <FieldRow label="حساب بنكي بدل النقدية (اختياري)">
@@ -748,6 +796,37 @@ export function InvoiceDialog({
                         />
                       );
                     })()}
+                    {lineHasShare(it) && (
+                      <div className="col-span-3 flex flex-wrap items-center gap-2 rounded-md bg-primary/5 px-2 py-1.5 text-xs order-last sm:col-span-4">
+                        <Stethoscope className="size-3.5 text-primary" />
+                        <span className="font-semibold text-primary">ليها حق للطبيب —</span>
+                        <span className="text-muted-foreground">الطبيب اللي طلبها / عملها:</span>
+                        <Select
+                          value={it.doctorId ?? NONE}
+                          onValueChange={(v) =>
+                            setItems(items.map((row, i) => (i === idx ? { ...row, doctorId: v === NONE ? undefined : v } : row)))
+                          }
+                        >
+                          <SelectTrigger aria-label={`طبيب ${it.description}`} className="h-8 w-auto min-w-48 bg-card text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent dir="rtl">
+                            <SelectItem value={NONE}>
+                              {doctorId !== NONE
+                                ? `نفس طبيب الإيصال (د. ${doctors.find((d) => d.id === doctorId)?.name ?? ""})`
+                                : "اختر الطبيب"}
+                            </SelectItem>
+                            {doctors
+                              .filter((d) => d.active || d.id === it.doctorId)
+                              .map((d) => (
+                                <SelectItem key={d.id} value={d.id}>
+                                  د. {d.name} — {d.specialty}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"

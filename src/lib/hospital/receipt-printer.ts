@@ -3,7 +3,7 @@
  * reception PC), so they are kept in this browser, not in the shared hospital data.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { PaperWidth } from "./thermal-receipt";
+import type { PaperWidth, ReceiptFontScale, ReceiptPageMode } from "./thermal-receipt";
 
 export interface ReceiptPrinterPrefs {
   width: PaperWidth;
@@ -14,6 +14,13 @@ export interface ReceiptPrinterPrefs {
   printer: string;
   /** Use the native silent printer command when the desktop shell provides it. */
   silent: boolean;
+  /** Printable width in mm for this printer (0 = standard: 72 on 80 mm, 48 on 58 mm). */
+  printableMm: number;
+  /** Horizontal shift in mm for printers that print off-centre. */
+  offsetMm: number;
+  fontScale: ReceiptFontScale;
+  /** Page sizing used only by the browser print window (direct printing never has a page). */
+  page: ReceiptPageMode;
 }
 
 const KEY = "hospital.receiptPrinter.v1";
@@ -23,6 +30,10 @@ export const DEFAULT_PRINTER: ReceiptPrinterPrefs = {
   autoPrint: true,
   printer: "",
   silent: true,
+  printableMm: 0,
+  offsetMm: 0,
+  fontScale: "normal",
+  page: "roll",
 };
 
 function read(): ReceiptPrinterPrefs {
@@ -36,10 +47,24 @@ function read(): ReceiptPrinterPrefs {
       autoPrint: p.autoPrint ?? DEFAULT_PRINTER.autoPrint,
       printer: typeof p.printer === "string" ? p.printer : "",
       silent: p.silent ?? DEFAULT_PRINTER.silent,
+      printableMm: Number.isFinite(Number(p.printableMm)) ? Math.max(0, Number(p.printableMm)) : 0,
+      offsetMm: Number.isFinite(Number(p.offsetMm)) ? Math.min(6, Math.max(-6, Number(p.offsetMm))) : 0,
+      fontScale: p.fontScale === "small" || p.fontScale === "large" ? p.fontScale : "normal",
+      page: p.page === "exact" ? "exact" : "roll",
     };
   } catch {
     return DEFAULT_PRINTER;
   }
+}
+
+/** Thermal-receipt layout options for these device preferences. */
+export function layoutOf(prefs: ReceiptPrinterPrefs) {
+  return {
+    width: prefs.width,
+    printableMm: prefs.printableMm || undefined,
+    offsetMm: prefs.offsetMm,
+    fontScale: prefs.fontScale,
+  };
 }
 
 export function useReceiptPrinter() {

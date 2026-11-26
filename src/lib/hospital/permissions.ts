@@ -73,6 +73,7 @@ export const SECTIONS = [
   { key: "patients", label: "ملفات المرضى الطبية", group: "الملف الطبي" },
   { key: "appointments", label: "المواعيد والحجوزات", group: "الملف الطبي" },
   { key: "lab", label: "طلبات ونتائج المعمل", group: "الملف الطبي" },
+  { key: "fileHandover", label: "سركي تسليم ملفات المرضى بين الأقسام", group: "الملف الطبي" },
   { key: "hr", label: "شؤون العاملين والعقود", group: "شؤون العاملين" },
   { key: "expenses", label: "إدارة المصروفات", group: "المصروفات" },
   { key: "pettyCash", label: "النثريات", group: "المصروفات" },
@@ -82,9 +83,11 @@ export const SECTIONS = [
   { key: "supplierAccounts", label: "كشف حساب الموردين", group: "المصروفات" },
   { key: "stock", label: "المخزن العام (أدوية ومستلزمات كل الأقسام)", group: "المخازن والأصول" },
   { key: "inventory", label: "الأصول الثابتة", group: "المخازن والأصول" },
+  { key: "devices", label: "الأجهزة الطبية والصيانة والمعايرة", group: "المخازن والأصول" },
   { key: "review", label: "المراجعة وسجل العمليات", group: "المراجعة" },
   { key: "approvals", label: "الاعتمادات (للمدير المالي)", group: "المراجعة" },
-  { key: "costCenters", label: "مراكز التكلفة", group: "التقارير والإعدادات" },
+  { key: "reports", label: "تقارير الإيرادات والمدفوعات والنثريات والأرباح", group: "التقارير والإعدادات" },
+  { key: "costCenters", label: "مراكز التكلفة والموازنات", group: "التقارير والإعدادات" },
   { key: "closing", label: "التقفيل الشهري والسنوي", group: "التقارير والإعدادات" },
   { key: "accounting", label: "القوائم المالية ودفتر الأستاذ", group: "التقارير والإعدادات" },
   { key: "settings", label: "الإعدادات والمستخدمين", group: "التقارير والإعدادات" },
@@ -139,10 +142,12 @@ export const ROLE_DEFAULTS: Record<Role, Record<GrantableSection, PermLevel>> = 
     settings: "none",
     review: "view",
   },
-  reception: { ...all("none"), billing: "edit", shifts: "edit", appointments: "edit", patients: "add" },
+  reception: { ...all("none"), billing: "edit", shifts: "edit", appointments: "edit", patients: "add", fileHandover: "add" },
   lab_manager: {
     ...all("none"),
     dashboard: "view",
+    fileHandover: "add",
+    devices: "add",
     billing: "edit",
     shifts: "edit",
     patients: "view",
@@ -154,6 +159,8 @@ export const ROLE_DEFAULTS: Record<Role, Record<GrantableSection, PermLevel>> = 
   icu_manager: {
     ...all("none"),
     dashboard: "view",
+    fileHandover: "add",
+    devices: "add",
     billing: "edit",
     shifts: "edit",
     patients: "view",
@@ -164,6 +171,8 @@ export const ROLE_DEFAULTS: Record<Role, Record<GrantableSection, PermLevel>> = 
   radiologist: {
     ...all("none"),
     dashboard: "view",
+    fileHandover: "add",
+    devices: "add",
     billing: "edit",
     shifts: "edit",
     patients: "view",
@@ -209,6 +218,8 @@ export function canApprove(
 
 /** Roles that may spend money directly; everyone else goes through a payment order. */
 export const canSpendDirectly = (actor: PermActor) => actor.role === "admin" || actor.role === "finance";
+/** Doctors' shares are paid at the end of each shift/day by the accountant (or finance / the director). */
+export const canPayDoctorDaily = (actor: PermActor) => canSpendDirectly(actor) || actor.role === "accountant";
 
 /** Keeps only known sections and levels (input from the director's screen). */
 export function cleanPermissions(input: unknown): Permissions | null {

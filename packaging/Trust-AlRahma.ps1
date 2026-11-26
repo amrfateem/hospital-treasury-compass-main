@@ -1,4 +1,4 @@
-# Trust the Al-Rahma internal signing root on this PC (one-time, administrator).
+﻿# Trust the Al-Rahma internal signing root on this PC (one-time, administrator).
 # Required for a clean "trusted publisher" prompt with the self-signed certificate.
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"

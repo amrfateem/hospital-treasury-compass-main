@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,6 +52,7 @@ describe("one owner account per installation", () => {
       password: "password123",
       role: "accountant",
     });
+    expect(dbm.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE op = 'createStaff'")?.n).toBe(1);
     const acc = auth.findProfileByUsername("accountant")!;
     expect(() =>
       users.updateStaff(me, { id: acc.id, fullName: "Accountant", role: "admin", active: true }),

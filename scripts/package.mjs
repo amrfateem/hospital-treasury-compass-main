@@ -53,6 +53,14 @@ function loaderDll() {
 
 const webview = webviewDir();
 const node = nodeExe();
+
+// The database uses node:sqlite, which Node only ships without a flag from 22.13. An older
+// bundled node.exe starts but every page fails, so refuse to package one.
+const nodeVersion = execFileSync(node, ["-p", "process.versions.node"], { encoding: "utf8" }).trim();
+const [major, minor] = nodeVersion.split(".").map(Number);
+if (major < 22 || (major === 22 && minor < 13)) {
+  throw new Error(`node.exe ${nodeVersion} is too old: node:sqlite needs Node 22.13 or newer.`);
+}
 const winsw = join(root, "tools", "winsw", "AlRahmaService.exe");
 
 rmSync(out, { recursive: true, force: true });
@@ -67,10 +75,12 @@ for (const dir of [serverDir, clientDir]) {
 
 copy(join(root, ".output", "server"), join(serverDir, "server"));
 copy(join(root, ".output", "public"), join(serverDir, "public"));
+if (existsSync(join(root, "packaging", "tls"))) copy(join(root, "packaging", "tls"), join(serverDir, "tls"));
+if (existsSync(join(root, "packaging", "tls-entry.mjs"))) copyFileSync(join(root, "packaging", "tls-entry.mjs"), join(serverDir, "server", "tls-entry.mjs"));
 copyFileSync(node, join(serverDir, "node.exe"));
 
 for (const name of ["data", "Backups", "Updates"]) mkdirSync(join(serverDir, name), { recursive: true });
-for (const name of ["install-service.ps1", "uninstall-service.ps1", "Trust-AlRahma.ps1", "Run-Update.ps1", "README-AR.txt"]) {
+for (const name of ["install-service.ps1", "uninstall-service.ps1", "Trust-AlRahma.ps1", "Run-Update.ps1", "Setup-Network.ps1", "Setup-Network.cmd", "README-AR.txt", "LEGACY-IMPORT-AR.txt"]) {
   const p = join(root, "packaging", name);
   if (existsSync(p)) copyFileSync(p, join(serverDir, name));
 }
@@ -80,12 +90,16 @@ if (existsSync(join(root, "trust"))) {
 }
 if (existsSync(winsw)) copyFileSync(winsw, join(serverDir, "AlRahmaService.exe"));
 mkdirSync(join(serverDir, "tools"), { recursive: true });
-for (const name of ["reset-password.mjs", "reset-password.cmd"]) {
+for (const name of ["reset-password.mjs", "reset-password.cmd", "restore-backup.mjs", "restore-backup.cmd"]) {
   const p = join(root, "packaging", name);
   if (existsSync(p)) copyFileSync(p, join(serverDir, "tools", name));
 }
 if (existsSync(join(root, "packaging", "Trust-AlRahma.ps1"))) {
   copyFileSync(join(root, "packaging", "Trust-AlRahma.ps1"), join(clientDir, "Trust-AlRahma.ps1"));
+}
+for (const name of ["Connect-Client.ps1", "Connect-Client.cmd", "LEGACY-IMPORT-AR.txt"]) {
+  const p = join(root, "packaging", name);
+  if (existsSync(p)) copyFileSync(p, join(clientDir, name));
 }
 const clientReadme = join(root, "packaging", "README-CLIENT-AR.txt");
 if (existsSync(clientReadme)) {
@@ -94,7 +108,7 @@ if (existsSync(clientReadme)) {
 
 writeFileSync(
   join(clientDir, "client.json"),
-  JSON.stringify({ url: process.env.ALRAHMA_CLIENT_URL || "http://alrahma.local" }, null, 2),
+  JSON.stringify({ url: process.env.ALRAHMA_CLIENT_URL || "https://alrahma.local" }, null, 2),
 );
 
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));

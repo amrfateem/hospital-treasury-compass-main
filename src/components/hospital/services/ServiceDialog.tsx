@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DeptSelect } from "@/components/hospital/kit";
+import { DOCTOR_SHARE_MODES, type DoctorShareMode } from "@/lib/hospital/finance";
 import {
   newId,
   saveListItem,
@@ -62,6 +63,8 @@ export function ServiceDialog({
   const [price, setPrice] = useState("");
   const [stay, setStay] = useState<StayChoice>("none");
   const [variablePrice, setVariablePrice] = useState(false);
+  const [shareMode, setShareMode] = useState<DoctorShareMode | "none">("none");
+  const [shareValue, setShareValue] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -74,6 +77,8 @@ export function ServiceDialog({
     setPrice(service ? String(service.price) : "");
     setStay(service?.stay ?? "none");
     setVariablePrice(!!service?.variablePrice);
+    setShareMode(service?.doctorShare?.mode ?? "none");
+    setShareValue(service?.doctorShare ? String(service.doctorShare.value) : "");
   }, [open, service, draft]);
 
   const groups = [
@@ -97,6 +102,11 @@ export function ServiceDialog({
       (s) => s.id !== service?.id && s.department === department && s.name.trim() === n,
     );
     if (dup) return setError("توجد خدمة بنفس الاسم في هذا القسم.");
+    const sv = Number(shareValue);
+    if (shareMode !== "none") {
+      if (!(sv > 0)) return setError("اكتب نسبة أو مبلغ الطبيب، أو اختر «بدون نسبة طبيب».");
+      if (shareMode === "percent" && sv > 100) return setError("نسبة الطبيب لا تزيد عن ١٠٠٪.");
+    }
     const item: ServiceItem = {
       id: service?.id ?? newId(),
       name: n,
@@ -106,6 +116,7 @@ export function ServiceDialog({
       group: group.trim() || undefined,
       stay: stay === "none" ? undefined : stay,
       variablePrice: variablePrice || undefined,
+      doctorShare: shareMode === "none" ? undefined : { mode: shareMode, value: sv },
     };
     if (!saveListItem("services", item)) return;
     toast.success(service ? `تم تعديل ${n}.` : `تمت إضافة ${n} لقائمة الأسعار.`);
@@ -114,7 +125,7 @@ export function ServiceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dir="rtl" className="sm:max-w-lg">
+      <DialogContent dir="rtl" className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{service ? "تعديل خدمة" : "إضافة خدمة جديدة"}</DialogTitle>
           <DialogDescription>
@@ -199,6 +210,44 @@ export function ServiceDialog({
             </div>
             <Switch id="svc-variable" checked={variablePrice} onCheckedChange={setVariablePrice} aria-label="سعر متغيّر" />
           </div>
+          <fieldset className="grid gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-2">
+            <legend className="px-1 text-sm font-semibold">حق الطبيب على الخدمة (تدخل)</legend>
+            <div className="space-y-1.5">
+              <Label>طريقة حساب حق الطبيب</Label>
+              <Select value={shareMode} onValueChange={(v) => setShareMode(v as DoctorShareMode | "none")}>
+                <SelectTrigger aria-label="طريقة حساب حق الطبيب">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  <SelectItem value="none">بدون نسبة طبيب</SelectItem>
+                  {(Object.keys(DOCTOR_SHARE_MODES) as DoctorShareMode[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {DOCTOR_SHARE_MODES[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {shareMode !== "none" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-share">{shareMode === "percent" ? "النسبة ٪" : "المبلغ لكل مرة (جنيه)"}</Label>
+                <Input
+                  id="svc-share"
+                  type="number"
+                  min="0"
+                  max={shareMode === "percent" ? "100" : undefined}
+                  step="0.01"
+                  value={shareValue}
+                  onChange={(e) => setShareValue(e.target.value)}
+                  className="num"
+                />
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground sm:col-span-2">
+              مثال: رسم قلب ٥٠ جنيه ثابت، خياطة ٣٠٪. الإيصال مش هيتحفظ إلا لما يتحدد الطبيب اللي طلب الخدمة أو عملها،
+              والمبلغ يظهر في كشف الطبيب وفي حساب «مستحقات الأطباء». الطبيب ممكن يكون له سعر خاص من صفحة الأطباء.
+            </p>
+          </fieldset>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>طريقة الحساب</Label>
             <Select value={stay} onValueChange={(v) => setStay(v as StayChoice)}>

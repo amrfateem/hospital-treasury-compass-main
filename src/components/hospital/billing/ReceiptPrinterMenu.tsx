@@ -12,10 +12,11 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { ReceiptPrinterPrefs } from "@/lib/hospital/receipt-printer";
+import { PRINTABLE_MM, printableWidth } from "@/lib/hospital/thermal-receipt";
 import { isNativePrint, listPrinters, openExportsFolder } from "@/lib/hospital/native-print";
 import { cn } from "@/lib/utils";
 
-function Choice<T extends number>({
+function Choice<T extends number | string>({
   value,
   options,
   onChange,
@@ -88,7 +89,7 @@ export function ReceiptPrinterMenu({
           <Printer /> طابعة الإيصالات
         </Button>
       </PopoverTrigger>
-      <PopoverContent dir="rtl" align="end" className="w-[22rem] max-w-[calc(100vw-2rem)] space-y-4">
+      <PopoverContent dir="rtl" align="end" className="max-h-[80vh] w-[22rem] max-w-[calc(100vw-2rem)] space-y-4 overflow-y-auto">
         <div>
           <p className="font-bold">طابعة الإيصالات (حرارية)</p>
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -123,6 +124,9 @@ export function ReceiptPrinterMenu({
                 ))}
               </SelectContent>
             </Select>
+            {!prefs.printer && (
+              <p className="text-[11px] text-muted-foreground">لو مختارتش طابعة، الإيصال هيطلع على طابعة ويندوز الافتراضية.</p>
+            )}
             {error && <p className="text-[11px] text-destructive">{error}</p>}
           </div>
         )}
@@ -132,12 +136,92 @@ export function ReceiptPrinterMenu({
           <Choice
             label="عرض ورق الطابعة"
             value={prefs.width}
-            onChange={(width) => onChange({ width })}
+            onChange={(width) => onChange({ width, printableMm: 0, offsetMm: 0 })}
             options={[
               [80, "٨٠ مم"],
               [58, "٥٨ مم"],
             ]}
           />
+        </div>
+        <div className="space-y-2 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-semibold">ضبط مقاس الطباعة على الريسيت</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              لو الكلام بيتقطع من الجناب أو الإيصال مش في النص، غيّر عرض الطباعة أو حرّكه يمين/شمال واعمل طباعة تجريبية.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              عرض الطباعة الفعلي: <b className="num">{printableWidth(prefs.width, prefs.printableMm)} مم</b>
+              {!prefs.printableMm && <span className="text-muted-foreground"> (القياسي)</span>}
+            </Label>
+            <Choice
+              label="عرض الطباعة الفعلي"
+              value={prefs.printableMm || 0}
+              onChange={(printableMm) => onChange({ printableMm })}
+              options={
+                prefs.width === 58
+                  ? [
+                      [0, `قياسي ${PRINTABLE_MM[58]}`],
+                      [44, "٤٤"],
+                      [52, "٥٢"],
+                      [56, "٥٦"],
+                    ]
+                  : [
+                      [0, `قياسي ${PRINTABLE_MM[80]}`],
+                      [68, "٦٨"],
+                      [76, "٧٦"],
+                      [78, "٧٨"],
+                    ]
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              تحريك الإيصال: <b className="num">{prefs.offsetMm > 0 ? `${prefs.offsetMm} مم يمين` : prefs.offsetMm < 0 ? `${-prefs.offsetMm} مم شمال` : "في النص"}</b>
+            </Label>
+            <div className="grid grid-cols-3 gap-1">
+              <Button type="button" size="sm" variant="outline" onClick={() => onChange({ offsetMm: Math.max(-6, prefs.offsetMm - 1) })}>
+                ← شمال
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => onChange({ offsetMm: 0 })}>
+                توسيط
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => onChange({ offsetMm: Math.min(6, prefs.offsetMm + 1) })}>
+                يمين →
+              </Button>
+            </div>
+          </div>
+          {(!native || !prefs.silent) && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">طول الورقة في نافذة الطباعة</Label>
+              <Choice
+                label="طول الورقة في نافذة الطباعة"
+                value={prefs.page}
+                onChange={(page) => onChange({ page })}
+                options={[
+                  ["roll", "ورق رول (بدون فراغ)"],
+                  ["exact", "مقاس الإيصال بالظبط"],
+                ]}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                «ورق رول» يبدأ الطباعة من أول الورقة ويقف بعد آخر سطر. لو الإيصال طلع صغير جدًا اختار «مقاس الإيصال بالظبط».
+              </p>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs">حجم الخط</Label>
+            <Choice
+              label="حجم الخط"
+              value={prefs.fontScale}
+              onChange={(fontScale) => onChange({ fontScale })}
+              options={[
+                ["small", "صغير"],
+                ["normal", "عادي"],
+                ["large", "كبير"],
+              ]}
+            />
+          </div>
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">عدد النسخ</Label>

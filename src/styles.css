@@ -647,3 +647,47 @@
   background-color: color-mix(in oklab, var(--color-expense) 10%, transparent);
   border-color: color-mix(in oklab, var(--color-expense) 25%, transparent);
 }
+
+/* Side menu: collapsible groups, page search, counters. */
+@utility nav-group {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: color-mix(in oklab, var(--color-sidebar-foreground) 80%, transparent);
+  transition: background-color 150ms, color 150ms;
+  &:hover {
+    background-color: color-mix(in oklab, var(--color-sidebar-accent) 55%, transparent);
+    color: var(--color-sidebar-accent-foreground);
+  }
+}
+@utility nav-group-current {
+  color: var(--color-sidebar-accent-foreground);
+}
+@utility nav-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  color: var(--color-sidebar-foreground);
+  background-color: color-mix(in oklab, var(--color-sidebar-accent) 55%, transparent);
+  border: 1px solid var(--color-sidebar-border);
+  &:focus-within {
+    border-color: color-mix(in oklab, var(--color-sidebar-primary) 60%, transparent);
+  }
+}
+@utility nav-badge {
+  min-width: 1.25rem;
+  border-radius: 9999px;
+  padding: 0 0.375rem;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: var(--color-sidebar-primary);
+  color: var(--color-sidebar-primary-foreground);
+}

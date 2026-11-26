@@ -45,7 +45,8 @@ import {
   type EInvoiceInput,
   type BankStatementInput,
 } from "./ops";
-import { applyHospitalOp, getHospitalChanges, getHospitalState, type Me } from "./sync.functions";
+import { applyHospitalOp, type Me } from "./sync.functions";
+import { getHospitalChanges, getHospitalState } from "./state-client";
 import { applyChunks } from "./chunks";
 import {
   clearCache,
@@ -80,6 +81,7 @@ export type { Me } from "./sync.functions";
 export {
   can,
   canApprove,
+  canPayDoctorDaily,
   canSpendDirectly,
   levelOf,
   PERM_HINTS,
@@ -601,7 +603,16 @@ export const payDoctor = (a: {
   amount: number;
   boxId: string;
   note?: string | undefined;
+  kind?: "daily" | undefined;
 }) => dispatch("payDoctor", { id: newId(), ...a });
+export const payDoctorDaily = (a: {
+  doctorId: string;
+  period: string;
+  date: string;
+  amount: number;
+  boxId: string;
+  note?: string | undefined;
+}) => dispatch("payDoctorDaily", { id: newId(), ...a });
 export const deleteDoctorPayout = (id: string) => dispatch("deleteDoctorPayout", { id });
 
 export const saveStockItem = (i: StockItem) => dispatch("saveStockItem", i);
@@ -826,3 +837,20 @@ export const decideAdvance = (id: string, approve: boolean, note?: string) =>
   dispatch("decideAdvance", { id, approve, note });
 export const payAdvance = (a: OpArgs<"payAdvance">) => dispatch("payAdvance", a);
 export const deleteAdvance = (id: string) => dispatch("deleteAdvance", { id });
+
+/* ---------------- Medical devices, file handovers, fiscal budget, profits ---------------- */
+export const saveDevice = (d: OpArgs<"saveDevice">) => dispatch("saveDevice", d);
+export const deleteDevice = (id: string) => dispatch("deleteDevice", { id });
+export const setDeviceStatus = (id: string, status: OpArgs<"setDeviceStatus">["status"]) =>
+  dispatch("setDeviceStatus", { id, status });
+export const saveDeviceLog = (l: OpArgs<"saveDeviceLog">) => dispatch("saveDeviceLog", l);
+export const deleteDeviceLog = (id: string) => dispatch("deleteDeviceLog", { id });
+export const saveCalibrationGuide = (g: OpArgs<"saveCalibrationGuide">) => dispatch("saveCalibrationGuide", g);
+export const deleteCalibrationGuide = (id: string) => dispatch("deleteCalibrationGuide", { id });
+export const saveFileHandover = (h: OpArgs<"saveFileHandover">) => dispatch("saveFileHandover", h);
+export const receiveFileHandover = (a: OpArgs<"receiveFileHandover">) => dispatch("receiveFileHandover", a);
+export const deleteFileHandover = (id: string) => dispatch("deleteFileHandover", { id });
+export const saveFiscalBudget = (b: OpArgs<"saveFiscalBudget">) => dispatch("saveFiscalBudget", b);
+export const approveFiscalBudget = (year: number, approve: boolean) => dispatch("approveFiscalBudget", { year, approve });
+export const deleteFiscalBudget = (year: number) => dispatch("deleteFiscalBudget", { year });
+export const saveProfitPolicy = (p: OpArgs<"saveProfitPolicy">) => dispatch("saveProfitPolicy", p);

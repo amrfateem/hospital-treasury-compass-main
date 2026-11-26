@@ -1,4 +1,4 @@
-# Remove the Al-Rahma Hospital Windows service. Data on the USB is not touched.
+﻿# Remove the Al-Rahma Hospital Windows service. Data on the USB is not touched.
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
 $ServiceName = "AlRahmaHospital"

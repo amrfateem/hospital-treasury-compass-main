@@ -26,6 +26,8 @@ import {
 } from "@/lib/hospital/store";
 import { ACCEPTED_FILES, errorText, uploadPrivateFile } from "@/lib/hospital/upload";
 import { getPatientFile } from "@/lib/medical/medical.functions";
+import { getLegacyPatientHistory } from "@/lib/legacy/legacy.functions";
+import { LEGACY_LABEL } from "@/lib/legacy/labels";
 import type { Patient } from "@/lib/medical/model";
 import { getPatientMoney } from "@/lib/medical/patient-money.functions";
 import { cn } from "@/lib/utils";
@@ -58,6 +60,7 @@ function PatientFile({ id, onEdit, onClose }: { id: string; onEdit: (p: Patient)
   const canAdd = useCan("patients", "add");
   const canCollect = useCan("billing", "add");
   const file = useQuery({ queryKey: ["patient-file", id], queryFn: () => getPatientFile({ data: { id } }) });
+  const legacy = useQuery({ queryKey: ["patient-legacy", id], queryFn: () => getLegacyPatientHistory({ data: { patientId: id } }), enabled: id.startsWith("legacy-") });
   const moneyQ = useQuery({
     queryKey: [...patientMoneyKey, version, id],
     queryFn: () => getPatientMoney({ data: { ids: [id] } }),
@@ -153,6 +156,7 @@ function PatientFile({ id, onEdit, onClose }: { id: string; onEdit: (p: Patient)
           <TabsTrigger value="info">البيانات</TabsTrigger>
           <TabsTrigger value="visits">الزيارات ({int(file.data?.visits.length ?? 0)})</TabsTrigger>
           <TabsTrigger value="files">المرفقات</TabsTrigger>
+          {id.startsWith("legacy-") && <TabsTrigger value="legacy">السيستم القديم ({int(legacy.data?.length ?? 0)})</TabsTrigger>}
         </TabsList>
         <TabsContent value="receipts">
           {receipts.length ? (
@@ -208,6 +212,26 @@ function PatientFile({ id, onEdit, onClose }: { id: string; onEdit: (p: Patient)
             </ul>
           ) : (
             <p className="ledger-card p-6 text-center text-sm text-muted-foreground">لا توجد زيارات مسجلة.</p>
+          )}
+        </TabsContent>
+        <TabsContent value="legacy">
+          {legacy.data?.length ? (
+            <ul className="ledger-card divide-y text-sm">
+              {legacy.data.map((r) => (
+                <li key={r.id} className="flex justify-between gap-3 px-3 py-2.5">
+                  <span>
+                    <span className="font-semibold">{LEGACY_LABEL[r.kind] ?? r.kind}</span> — {r.title || "—"}
+                    {r.at && <span className="block text-xs text-muted-foreground">{r.at}</span>}
+                  </span>
+                  <span className="text-end tabular-nums">
+                    {money(r.amount)}
+                    {r.paid !== null && r.paid !== r.amount && <span className="block text-xs text-muted-foreground">مدفوع {money(r.paid)}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ledger-card p-6 text-center text-sm text-muted-foreground">{legacy.isLoading ? "جاري التحميل…" : "لا توجد سجلات من السيستم القديم."}</p>
           )}
         </TabsContent>
         <TabsContent value="files">

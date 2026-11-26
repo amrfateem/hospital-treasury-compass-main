@@ -1,6 +1,6 @@
 {
   "name": "alrahma-hospital",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -17,7 +17,8 @@
     "app:package": "node scripts/package.mjs"
   },
   "overrides": {
-    "rolldown": "1.2.1"
+    "rolldown": "1.2.1",
+    "shell-quote": ">=1.11.0"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.118",
@@ -105,7 +106,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "8.1.5",
+    "vite": "^8.3.8",
     "vitest": "^4.1.10"
   }
 }

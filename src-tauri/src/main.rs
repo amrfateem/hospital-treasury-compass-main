@@ -53,6 +53,10 @@ fn backup_dir() -> PathBuf {
 }
 
 fn server_entry(dir: &Path) -> PathBuf {
+    let tls = dir.join("server").join("tls-entry.mjs");
+    if tls.exists() {
+        return tls;
+    }
     let direct = dir.join("server").join("index.mjs");
     if direct.exists() {
         return direct;
@@ -71,9 +75,13 @@ fn server_entry(dir: &Path) -> PathBuf {
     direct
 }
 
-fn wait_for_server() -> bool {
+fn has_tls(dir: &Path) -> bool {
+    dir.join("tls").join("server.crt").exists() && dir.join("tls").join("server.key").exists()
+}
+
+fn wait_for_server(port: u16) -> bool {
     for _ in 0..80 {
-        if TcpStream::connect(("127.0.0.1", 80)).is_ok() {
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return true;
         }
         sleep(Duration::from_millis(250));
@@ -82,6 +90,8 @@ fn wait_for_server() -> bool {
 }
 
 fn spawn_server(dir: &Path, log_path: &Path) -> Option<Child> {
+    let tls = has_tls(dir);
+    let port = if tls { "443" } else { "80" };
     let node = {
         let local = dir.join("node.exe");
         if local.exists() {
@@ -107,7 +117,7 @@ fn spawn_server(dir: &Path, log_path: &Path) -> Option<Child> {
         .current_dir(dir)
         .env("NODE_ENV", "production")
         .env("ALRAHMA_APP", "1")
-        .env("PORT", "80")
+        .env("PORT", port)
         .env("HOST", "0.0.0.0")
         .env("ALRAHMA_HOST", "alrahma.local")
         .env("ALRAHMA_DATA_DIR", &data)
@@ -364,16 +374,30 @@ fn print_receipt_raw(
     let copies = copies.clamp(1, 3);
     let mut job = Vec::with_capacity(16 + copies as usize * (rows.len() + 16));
     job.extend_from_slice(&[0x1b, 0x40]); // ESC @ init
+    // Many thermal printers only buffer a few hundred raster lines per GS v 0 command and
+    // drop or garble the rest of a long receipt, so the image is sent in bands.
+    const BAND: usize = 256;
+    let row_bytes = width_bytes as usize;
+    let xl = (width_bytes & 0xff) as u8;
+    let xh = ((width_bytes >> 8) & 0xff) as u8;
     for _ in 0..copies {
-        let xl = (width_bytes & 0xff) as u8;
-        let xh = ((width_bytes >> 8) & 0xff) as u8;
-        let yl = (height & 0xff) as u8;
-        let yh = ((height >> 8) & 0xff) as u8;
-        job.extend_from_slice(&[0x1d, 0x76, 0x30, 0x00, xl, xh, yl, yh]);
-        job.extend_from_slice(&rows);
-        job.extend_from_slice(&[0x1b, 0x64, 0x03]); // feed 3 lines
+        job.extend_from_slice(&[0x1b, 0x33, 0x00]); // line spacing 0 between bands
+        let mut start = 0usize;
+        while start < height as usize {
+            let lines = BAND.min(height as usize - start);
+            let yl = (lines & 0xff) as u8;
+            let yh = ((lines >> 8) & 0xff) as u8;
+            job.extend_from_slice(&[0x1d, 0x76, 0x30, 0x00, xl, xh, yl, yh]);
+            job.extend_from_slice(&rows[start * row_bytes..(start + lines) * row_bytes]);
+            start += lines;
+        }
+        job.extend_from_slice(&[0x1b, 0x32]); // default line spacing
         if cut {
-            job.extend_from_slice(&[0x1d, 0x56, 0x00]); // full cut
+            // GS V 65 0: feed only up to the cutter and cut, so no blank paper is wasted after
+            // the last line (a fixed line feed before the cut left an empty strip on every slip).
+            job.extend_from_slice(&[0x1d, 0x56, 0x41, 0x00]);
+        } else {
+            job.extend_from_slice(&[0x1b, 0x64, 0x03]); // feed 3 lines so the slip can be torn off
         }
     }
     let printer_name = printer.clone();
@@ -450,9 +474,11 @@ fn main() {
     let app = builder
         .setup(move |app| {
             let mut child = None;
+            let tls = has_tls(&dir);
+            let port: u16 = if tls { 443 } else { 80 };
             if server_mode {
                 // A Windows service may already be serving; never start a second server.
-                let service_running = TcpStream::connect(("127.0.0.1", 80)).is_ok();
+                let service_running = TcpStream::connect(("127.0.0.1", port)).is_ok();
                 if !service_running {
                     if let Some(c) = spawn_server(&dir, &log_path) {
                         child = Some(c);
@@ -463,8 +489,12 @@ fn main() {
             let url: tauri::Url = match &client_url {
                 Some(u) => u.parse()?,
                 None => {
-                    let _ = wait_for_server();
-                    "http://127.0.0.1/".parse()?
+                    let _ = wait_for_server(port);
+                    if tls {
+                        "https://127.0.0.1/".parse()?
+                    } else {
+                        "http://127.0.0.1/".parse()?
+                    }
                 }
             };
 

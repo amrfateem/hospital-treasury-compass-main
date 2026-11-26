@@ -54,9 +54,10 @@ function writeAudit(entries: AuditEntry[], version: number) {
 }
 
 /** Applies changed chunks atomically only if the version still matches. */
-function saveChunks(expected: number, chunks: Record<string, unknown>, audit: AuditEntry[]): number | null {
+function saveChunks(expected: number, chunks: Record<string, unknown>, audit: AuditEntry[], sideEffects?: () => void): number | null {
   return transaction(() => {
     if (currentVersion() !== expected) return null;
+    sideEffects?.();
     const version = expected + 1;
     const day = cairoDay();
     const now = new Date().toISOString();
@@ -109,11 +110,17 @@ function saveChunks(expected: number, chunks: Record<string, unknown>, audit: Au
 }
 
 /** Saves only what changed between prev and next; null when another device saved first. */
-export async function saveState(expected: number, prev: HospitalDB, next: HospitalDB) {
+export async function saveState(expected: number, prev: HospitalDB, next: HospitalDB, sideEffects?: () => void) {
   const changed = diffChunks(prev, next);
   const known = new Set(prev.auditLog.map((e) => e.id));
   const audit = next.auditLog.filter((e) => !known.has(e.id));
-  const saved = saveChunks(expected, changed, audit);
+  let saved: number | null;
+  try {
+    saved = saveChunks(expected, changed, audit, sideEffects);
+  } catch (error) {
+    cache = null;
+    throw error;
+  }
   if (saved !== null) cache = { version: saved, db: next };
   else cache = null;
   return saved;

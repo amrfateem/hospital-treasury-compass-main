@@ -247,6 +247,12 @@ function ServicesPage() {
                           {!s.variablePrice && (
                             <span className="rounded-full bg-muted px-2 py-0.5">سعر ثابت</span>
                           )}
+                          {s.doctorShare && s.doctorShare.value > 0 && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+                              حق الطبيب:{" "}
+                              {s.doctorShare.mode === "percent" ? `${s.doctorShare.value}٪` : `${s.doctorShare.value} ج.م`}
+                            </span>
+                          )}
                         </p>
                       </div>
                       <PriceCell svc={s} editable={canEdit} />

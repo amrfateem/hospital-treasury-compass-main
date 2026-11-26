@@ -1,4 +1,4 @@
-# Al-Rahma Hospital signed update script (generated; do not edit).
+﻿# Al-Rahma Hospital signed update script (generated; do not edit).
 # It verifies every payload file by SHA-256, backs up the database, replaces the server
 # and public folders, then starts the server again. A failure restores the previous version.
 #Requires -RunAsAdministrator
@@ -47,7 +47,7 @@ Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyC
 Get-Process -Name "AlRahmaHospital" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
-foreach ($name in @("server", "public")) {
+foreach ($name in @("server", "public", "tls")) {
   $current = Join-Path $AppDir $name
   $old = Join-Path $AppDir ("$name.old-" + $Version)
   if (Test-Path $old) { Remove-Item $old -Recurse -Force }
@@ -66,6 +66,14 @@ foreach ($name in $rootFiles) {
   Copy-Item -Path $source -Destination $current -Force
 }
 
+# Refresh the installed service XML so it uses the new tls-entry.mjs and port 443.
+if ($wasService) {
+  $installer = Join-Path $AppDir "install-service.ps1"
+  if (Test-Path $installer) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer | Out-Null
+  }
+}
+
 function Start-Server {
   if ($wasService) {
     Start-Service -Name $ServiceName
@@ -79,15 +87,15 @@ $ok = $false
 for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Milliseconds 500
   try {
-    $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1/api/health" -TimeoutSec 2
-    if ($r.StatusCode -eq 200) { $ok = $true; break }
+    & curl.exe -k -f -s -m 2 "https://127.0.0.1/api/health" | Out-Null
+    if ($LASTEXITCODE -eq 0) { $ok = $true; break }
   } catch { }
 }
 
 if (-not $ok) {
   Write-Host "فشل تشغيل الإصدار الجديد؛ العودة للنسخة السابقة..." -ForegroundColor Yellow
   if ($wasService) { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue }
-  foreach ($name in @("server", "public")) {
+  foreach ($name in @("server", "public", "tls")) {
     $old = Join-Path $AppDir ("$name.old-" + $Version)
     if (Test-Path $old) {
       Remove-Item (Join-Path $AppDir $name) -Recurse -Force -ErrorAction SilentlyContinue

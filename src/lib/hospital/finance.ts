@@ -201,72 +201,333 @@ export function remainingAfterPayment(due: number, paid: number) {
 }
 
 /* ---------- Doctors' dues ---------- */
+/** What a doctor's percentage is taken from: consultation lines only, or every service line. */
+export type DoctorPercentBase = "consult" | "all";
+export const DOCTOR_PERCENT_BASES: Record<DoctorPercentBase, string> = {
+  consult: "الكشف / الاستشارة فقط",
+  all: "كل خدمات الإيصال (عدا العمليات والأدوية)",
+};
+
+/** A doctor's share of one intervention (ECG, stitching...): a % of its price or a fixed amount per unit. */
+export type DoctorShareMode = "percent" | "fixed";
+export interface DoctorShareRule {
+  mode: DoctorShareMode;
+  value: number;
+}
+export const DOCTOR_SHARE_MODES: Record<DoctorShareMode, string> = {
+  percent: "نسبة ٪ من سعر الخدمة",
+  fixed: "مبلغ ثابت لكل مرة",
+};
+
 export interface DoctorTerms {
   id: string;
   monthlySalary: number;
   consultPercent: number;
+  /** Default "consult". */
+  percentOn?: DoctorPercentBase | undefined;
   surgeryFee: number;
   supervisionPerDay: number;
+  /** This doctor's own rate for specific services; wins over the service's default share. */
+  serviceShares?: ({ serviceId: string } & DoctorShareRule)[] | undefined;
 }
+
+/** The part of a price-list service that drives doctors' shares. */
+export interface ShareService {
+  id: string;
+  name: string;
+  department?: string | undefined;
+  doctorShare?: DoctorShareRule | undefined;
+}
+
 export interface DoctorInvoiceInput extends InvoiceAmountsInput {
   date: string;
+  department?: string | undefined;
+  clinicId?: string | undefined;
   doctorId?: string | undefined;
   /** Operating theatre: the anaesthetist earns the per-surgery fee on the receipt's surgeries. */
   anesthetistId?: string | undefined;
 }
 
+type DuesItem = InvoiceAmountsInput["items"][number] & {
+  stockItemId?: string | undefined;
+  serviceId?: string | undefined;
+  /** The doctor who asked for / did this line when it is not the receipt's doctor. */
+  doctorId?: string | undefined;
+  /** Intervention share frozen when the receipt was saved. */
+  doctorRule?: DoctorShareRule | undefined;
+};
+
+/** The price-list service of a receipt line: by id, else by name in the receipt's department. */
+export function serviceOfLine(
+  services: ShareService[],
+  it: { description: string; serviceId?: string | undefined; stockItemId?: string | undefined },
+  department?: string | undefined,
+  clinicId?: string | undefined,
+): ShareService | undefined {
+  if (it.stockItemId) return undefined;
+  if (it.serviceId) {
+    const byId = services.find((s) => s.id === it.serviceId);
+    if (byId) return byId;
+  }
+  const name = it.description.trim();
+  const c = services.filter((s) => s.name.trim() === name);
+  return (
+    c.find((s) => s.department && s.department === department) ??
+    c.find((s) => s.department && s.department === clinicId) ??
+    c.find((s) => !s.department) ??
+    c[0]
+  );
+}
+
+/** The doctor a receipt line belongs to: the line's own doctor, else the receipt's doctor. */
+export const lineDoctor = (it: { doctorId?: string | undefined }, inv: { doctorId?: string | undefined }) =>
+  it.doctorId || inv.doctorId || undefined;
+
+/** The rule that prices a doctor's share of a line, or null when the line earns the doctor nothing. */
+export function shareRuleFor(
+  doctor: DoctorTerms,
+  it: DuesItem,
+  svc: ShareService | undefined,
+): { rule: DoctorShareRule; source: "doctor" | "service" | "general" } | null {
+  if (it.kind === "surgery" || it.stockItemId) return null;
+  if (it.doctorRule && it.doctorRule.value > 0) return { rule: it.doctorRule, source: "service" };
+  const own = svc && doctor.serviceShares?.find((s) => s.serviceId === svc.id);
+  if (own && own.value > 0) return { rule: { mode: own.mode, value: own.value }, source: "doctor" };
+  if (svc?.doctorShare && svc.doctorShare.value > 0) return { rule: svc.doctorShare, source: "service" };
+  const base = doctor.percentOn ?? "consult";
+  if (base === "all" || it.kind === "consult")
+    return doctor.consultPercent > 0 ? { rule: { mode: "percent", value: doctor.consultPercent }, source: "general" } : null;
+  return null;
+}
+
+export function applyShareRule(rule: DoctorShareRule, qty: number, unitPrice: number) {
+  const q = Math.max(0, qty || 0);
+  if (rule.mode === "fixed") return round2(q * Math.max(0, rule.value || 0));
+  return round2((q * Math.max(0, unitPrice || 0) * clamp(rule.value, 0, 100)) / 100);
+}
+
+export interface DoctorShareLine {
+  description: string;
+  qty: number;
+  amount: number;
+  rule: DoctorShareRule;
+  source: "doctor" | "service" | "general";
+  share: number;
+}
+
+/** One receipt's contribution to a doctor's dues, line by line. */
+export function doctorReceiptShare(doctor: DoctorTerms, inv: DoctorInvoiceInput, services: ShareService[] = []) {
+  const treating = inv.doctorId === doctor.id;
+  let percentBase = 0;
+  let percent = 0;
+  let interventionBase = 0;
+  let interventions = 0;
+  let surgeries = 0;
+  const lines: DoctorShareLine[] = [];
+  for (const it of inv.items as DuesItem[]) {
+    const qty = Math.max(0, it.qty || 0);
+    if (!qty) continue;
+    const who = lineDoctor(it, inv);
+    if (it.kind === "surgery") {
+      if (who === doctor.id || inv.anesthetistId === doctor.id) surgeries += qty;
+      continue;
+    }
+    if (who !== doctor.id) continue;
+    const found = shareRuleFor(doctor, it, serviceOfLine(services, it, inv.department, inv.clinicId));
+    if (!found) continue;
+    const amount = round2(qty * Math.max(0, it.unitPrice || 0));
+    const share = applyShareRule(found.rule, qty, it.unitPrice);
+    if (found.source === "general") {
+      percentBase += amount;
+      percent += share;
+    } else {
+      interventionBase += amount;
+      interventions += share;
+    }
+    lines.push({ description: it.description, qty, amount, rule: found.rule, source: found.source, share });
+  }
+  const days = treating && inv.kind === "inpatient" && inv.stay ? stayDays(inv.stay.admitDate, inv.stay.dischargeDate) : 0;
+  const surgery = round2(surgeries * Math.max(0, doctor.surgeryFee || 0));
+  const supervision = round2(days * Math.max(0, doctor.supervisionPerDay || 0));
+  const role = treating
+    ? ("treating" as const)
+    : inv.anesthetistId === doctor.id
+      ? ("anesthetist" as const)
+      : ("requester" as const);
+  return {
+    role,
+    percentBase: round2(percentBase),
+    percent: round2(percent),
+    interventionBase: round2(interventionBase),
+    interventions: round2(interventions),
+    surgeries,
+    surgery,
+    supervisionDays: days,
+    supervision,
+    lines,
+    total: round2(percent + interventions + surgery + supervision),
+  };
+}
+
+/** True when the doctor appears on the receipt (treating, anaesthetist or on one of its lines). */
+export function doctorOnInvoice(doctorId: string, inv: DoctorInvoiceInput) {
+  return (
+    inv.doctorId === doctorId ||
+    inv.anesthetistId === doctorId ||
+    (inv.items as DuesItem[]).some((it) => it.doctorId === doctorId)
+  );
+}
+
+/** The receipts a doctor earns from in a period ("YYYY-MM"), each with its share, oldest first. */
+export function doctorStatement<T extends DoctorInvoiceInput>(
+  doctor: DoctorTerms,
+  invoices: T[],
+  period: string,
+  services: ShareService[] = [],
+) {
+  return invoices
+    .filter((i) => i.date.startsWith(period) && doctorOnInvoice(doctor.id, i))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((invoice) => ({ invoice, ...doctorReceiptShare(doctor, invoice, services) }));
+}
+
 /**
- * A doctor's dues for a period ("YYYY-MM"): fixed salary + % of consultation lines +
- * a flat fee per surgery + supervision per inpatient day, minus what was already paid.
+ * A doctor's dues for a period ("YYYY-MM"): fixed salary + % of consultation (or all service) lines +
+ * each intervention's own share + a flat fee per surgery + supervision per inpatient day, minus what
+ * was already paid.
  */
 export function doctorDues(
   doctor: DoctorTerms,
   invoices: DoctorInvoiceInput[],
   payouts: { doctorId: string; period: string; amount: number }[],
   period: string,
+  services: ShareService[] = [],
 ) {
-  const mine = invoices.filter(
-    (i) => (i.doctorId === doctor.id || i.anesthetistId === doctor.id) && i.date.startsWith(period),
-  );
-  let consultBase = 0;
-  let surgeries = 0;
-  let days = 0;
-  for (const inv of mine) {
-    if (inv.doctorId !== doctor.id) {
-      // Anaesthetist on this receipt: only the surgeries count.
-      for (const it of inv.items) if (it.kind === "surgery") surgeries += Math.max(0, it.qty || 0);
-      continue;
-    }
-    for (const it of inv.items) {
-      const value = Math.max(0, it.qty || 0) * Math.max(0, it.unitPrice || 0);
-      if (it.kind === "consult") consultBase += value;
-      if (it.kind === "surgery") surgeries += Math.max(0, it.qty || 0);
-    }
-    if (inv.kind === "inpatient" && inv.stay)
-      days += stayDays(inv.stay.admitDate, inv.stay.dischargeDate);
-  }
+  const rows = doctorStatement(doctor, invoices, period, services);
+  const sum = (
+    k: "percentBase" | "percent" | "interventionBase" | "interventions" | "surgeries" | "surgery" | "supervisionDays" | "supervision",
+  ) => rows.reduce((s, r) => s + r[k], 0);
   const salary = round2(Math.max(0, doctor.monthlySalary || 0));
-  const consult = round2((consultBase * clamp(doctor.consultPercent, 0, 100)) / 100);
-  const surgery = round2(surgeries * Math.max(0, doctor.surgeryFee || 0));
-  const supervision = round2(days * Math.max(0, doctor.supervisionPerDay || 0));
-  const total = round2(salary + consult + surgery + supervision);
+  const consult = round2(sum("percent"));
+  const interventions = round2(sum("interventions"));
+  const surgery = round2(sum("surgery"));
+  const supervision = round2(sum("supervision"));
+  const total = round2(salary + consult + interventions + surgery + supervision);
   const paid = round2(
     payouts
       .filter((p) => p.doctorId === doctor.id && p.period === period)
       .reduce((s, p) => s + p.amount, 0),
   );
   return {
-    invoices: mine.length,
+    invoices: rows.length,
     salary,
-    consultBase: round2(consultBase),
+    consultBase: round2(sum("percentBase")),
     consult,
-    surgeries,
+    interventionBase: round2(sum("interventionBase")),
+    interventions,
+    surgeries: sum("surgeries"),
     surgery,
-    supervisionDays: days,
+    supervisionDays: sum("supervisionDays"),
     supervision,
     total,
     paid,
     remaining: round2(total - paid),
+  };
+}
+
+const nextPeriod = (p: string) => {
+  const [y, m] = p.split("-").map(Number) as [number, number];
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+};
+
+/** First month the doctor has a receipt or a payout ("YYYY-MM"), or null. */
+export function doctorFirstPeriod(
+  doctor: DoctorTerms,
+  invoices: DoctorInvoiceInput[],
+  payouts: { doctorId: string; period: string }[],
+) {
+  let first: string | null = null;
+  for (const i of invoices)
+    if (doctorOnInvoice(doctor.id, i)) {
+      const p = i.date.slice(0, 7);
+      if (!first || p < first) first = p;
+    }
+  for (const p of payouts) if (p.doctorId === doctor.id && (!first || p.period < first)) first = p.period;
+  return first;
+}
+
+/**
+ * The doctor's running account up to `period`: every month from the first activity, what was due,
+ * paid and left. Unpaid months carry forward, so a doctor's money is never lost when a month passes.
+ */
+export function doctorAccount(
+  doctor: DoctorTerms,
+  invoices: DoctorInvoiceInput[],
+  payouts: { doctorId: string; period: string; amount: number }[],
+  period: string,
+  services: ShareService[] = [],
+) {
+  const mine = invoices.filter((i) => doctorOnInvoice(doctor.id, i));
+  const paidTo = payouts.filter((p) => p.doctorId === doctor.id);
+  const first = doctorFirstPeriod(doctor, mine, paidTo);
+  const months: { period: string; total: number; paid: number; remaining: number }[] = [];
+  if (first && first <= period) {
+    for (let p = first, n = 0; p <= period && n < 1200; p = nextPeriod(p), n++) {
+      const d = doctorDues(doctor, mine, paidTo, p, services);
+      months.push({ period: p, total: d.total, paid: d.paid, remaining: d.remaining });
+    }
+  }
+  const before = months.filter((m) => m.period < period);
+  const arrears = round2(before.reduce((s, m) => s + m.remaining, 0));
+  const balance = round2(months.reduce((s, m) => s + m.remaining, 0));
+  return {
+    months,
+    /** Left unpaid from months before `period`. */
+    arrears,
+    /** Everything still owed to the doctor up to and including `period`. */
+    balance,
+    /** Oldest month that still has money left for the doctor. */
+    oldestUnpaid: months.find((m) => m.remaining > 0.004)?.period ?? null,
+  };
+}
+
+/**
+ * A doctor's money for one day ("YYYY-MM-DD"), for paying shares at the end of each shift/day.
+ * `today` is what that day's receipts earned (no salary); `due` is every share of the month up to
+ * that day not yet paid as a daily payout — capped by what is really owed, so a month already paid
+ * the old monthly way never shows again. `earlier` is the part of `due` left from previous days.
+ */
+export function doctorDay(
+  doctor: DoctorTerms,
+  invoices: DoctorInvoiceInput[],
+  payouts: { doctorId: string; period: string; date: string; amount: number; kind?: "daily" | undefined }[],
+  day: string,
+  services: ShareService[] = [],
+) {
+  const period = day.slice(0, 7);
+  const rows = doctorStatement(doctor, invoices, period, services).filter((r) => r.invoice.date <= day);
+  const share = (r: (typeof rows)[number]) => r.percent + r.interventions + r.surgery + r.supervision;
+  const todayRows = rows.filter((r) => r.invoice.date === day);
+  const today = round2(todayRows.reduce((s, r) => s + share(r), 0));
+  const monthShares = round2(rows.reduce((s, r) => s + share(r), 0));
+  const mine = payouts.filter((p) => p.doctorId === doctor.id);
+  const dailyPaid = round2(
+    mine.filter((p) => p.kind === "daily" && p.period === period && p.date <= day).reduce((s, p) => s + p.amount, 0),
+  );
+  const paidToday = round2(mine.filter((p) => p.date === day).reduce((s, p) => s + p.amount, 0));
+  const paidTodayDaily = round2(
+    mine.filter((p) => p.kind === "daily" && p.date === day).reduce((s, p) => s + p.amount, 0),
+  );
+  const owed = doctorAccount(doctor, invoices, payouts, period, services).balance;
+  const due = round2(Math.max(0, Math.min(owed, monthShares - dailyPaid)));
+  const todayLeft = Math.max(0, today - paidTodayDaily);
+  return {
+    today,
+    paidToday,
+    due,
+    earlier: round2(Math.max(0, due - todayLeft)),
+    receipts: todayRows.length,
+    lines: todayRows.flatMap((r) => r.lines.map((l) => ({ ...l, invoice: r.invoice }))),
   };
 }
 

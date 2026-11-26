@@ -10,12 +10,20 @@ import {
   type LedgerDepartment,
 } from "./constants";
 import { DEFAULT_PAYROLL_SETTINGS, type PayrollSettings } from "./payroll-tax";
-import { invoiceAmounts, supplierInvoiceTotals, type StayInput, type WhtType } from "./finance";
+import { invoiceAmounts, supplierInvoiceTotals, type DoctorShareRule, type StayInput, type WhtType } from "./finance";
 import type { Permissions, Role, Section, StaffControls } from "./permissions";
 import { DEFAULT_SERVICES, SERVICE_CATALOG_VERSION } from "./catalog";
 import { DEFAULT_STOCK_ITEMS, STOCK_CATALOG_VERSION, STOCK_CATEGORIES } from "./stock-catalog";
 import { DEFAULT_ETA_SETTINGS, type EInvoice, type EtaSettings } from "./eta";
 import type { BankStatement } from "./bank";
+import type { CalibrationGuide, DeviceLog, MedicalDevice } from "./devices";
+import type { FileHandover } from "./handover";
+import type { FiscalBudget } from "./fiscal-budget";
+import type { ProfitPolicy } from "./profits";
+export type { CalibrationGuide, DeviceLog, MedicalDevice } from "./devices";
+export type { FileHandover, HandoverItem } from "./handover";
+export type { FiscalBudget, FiscalBudgetLine } from "./fiscal-budget";
+export type { ProfitPolicy, ProfitPartner } from "./profits";
 export type { EInvoice, EInvoiceLine, EtaSettings } from "./eta";
 export type { BankStatement, BankLine } from "./bank";
 export type { Permissions, Role, Section, PermLevel, GrantableSection, StaffControls } from "./permissions";
@@ -188,6 +196,12 @@ export interface InvoiceItem {
   kind?: ServiceKind | undefined;
   /** Drug / consumable sold from the store (pharmacy): the sale takes it out of stock. */
   stockItemId?: string | undefined;
+  /** The price-list service this line came from (drives the doctor's share). */
+  serviceId?: string | undefined;
+  /** The doctor who asked for / did this line (ECG, stitching...) when not the receipt's doctor. */
+  doctorId?: string | undefined;
+  /** The intervention share in force when the receipt was saved, so later rate changes never rewrite it. */
+  doctorRule?: DoctorShareRule | undefined;
 }
 
 export type InvoiceKind = "outpatient" | "inpatient";
@@ -313,12 +327,16 @@ export interface Doctor {
   phone?: string | undefined;
   active: boolean;
   monthlySalary: number;
-  /** Percentage of consultation lines. */
+  /** The doctor's percentage (of consultation lines, or of every service line — see `percentOn`). */
   consultPercent: number;
+  /** What the percentage is taken from; default "consult". */
+  percentOn?: "consult" | "all" | undefined;
   /** Flat fee per surgery line (per qty). */
   surgeryFee: number;
   /** Per inpatient day the doctor supervises. */
   supervisionPerDay: number;
+  /** The doctor's own share for specific services (wins over the service's default share). */
+  serviceShares?: ({ serviceId: string } & DoctorShareRule)[] | undefined;
 }
 
 export interface DoctorPayout {
@@ -330,6 +348,8 @@ export interface DoctorPayout {
   amount: number;
   boxId: string;
   note?: string | undefined;
+  /** "daily": the doctor's shares paid at the end of a shift/day (see `doctorDay`). */
+  kind?: "daily" | undefined;
   createdAt: number;
 }
 
@@ -850,6 +870,8 @@ export interface ServiceItem extends ListItem {
   stay?: "room" | "supervision" | undefined;
   /** Allows the price to be typed on a receipt; otherwise it is fixed from this list. */
   variablePrice?: boolean | undefined;
+  /** The requesting / performing doctor's share of this service (ECG, stitching...). */
+  doctorShare?: DoctorShareRule | undefined;
 }
 export interface PayerItem extends ListItem {
   /** Default coverage percentage. */
@@ -1173,6 +1195,18 @@ export interface HospitalDB {
   admissions: Admission[];
   refunds: Refund[];
   advances: Advance[];
+  /** Medical devices register (every department). */
+  medicalDevices: MedicalDevice[];
+  /** Maintenance / calibration history of the devices. */
+  deviceLogs: DeviceLog[];
+  /** Calibration guides written or uploaded by the departments. */
+  calibrationGuides: CalibrationGuide[];
+  /** Patient-file handovers between departments (سركي التسليم). */
+  fileHandovers: FileHandover[];
+  /** Fiscal-year budgets (one per year). */
+  fiscalBudgets: FiscalBudget[];
+  /** Yearly profit distribution policies. */
+  profitPolicies: ProfitPolicy[];
   /** Review status per transaction id. */
   reviews: Record<string, Review>;
   /** Who did what and when (newest last, capped). */
@@ -1233,6 +1267,12 @@ export function emptyDB(): HospitalDB {
     admissions: [],
     refunds: [],
     advances: [],
+    medicalDevices: [],
+    deviceLogs: [],
+    calibrationGuides: [],
+    fileHandovers: [],
+    fiscalBudgets: [],
+    profitPolicies: [],
     reviews: {},
     auditLog: [],
     settings: DEFAULT_SETTINGS,
@@ -1300,6 +1340,12 @@ export function normalizeDB(parsed: Partial<HospitalDB> | Record<string, unknown
     admissions: arr("admissions"),
     refunds: arr("refunds"),
     advances: arr("advances"),
+    medicalDevices: arr("medicalDevices"),
+    deviceLogs: arr("deviceLogs"),
+    calibrationGuides: arr("calibrationGuides"),
+    fileHandovers: arr("fileHandovers"),
+    fiscalBudgets: arr("fiscalBudgets"),
+    profitPolicies: arr("profitPolicies"),
     reviews: p.reviews && typeof p.reviews === "object" ? { ...p.reviews } : {},
     auditLog: arr("auditLog"),
     settings: {

@@ -58,7 +58,7 @@
 - [x] Budget vs actual per department
 - [ ] Branches + foreign currencies (exchange rate → EGP)
 - [x] Staff section: employee file, national ID card (photos), employment contract — print, sign (screen or scanned), stored
-- [ ] Medical: patient files, appointments, lab results
+- [x] Medical: patient files, appointments, lab results
 - [x] Ready for large volume: medical/HR data in their own tables
 
 ## Request 2026-11-16 (staff contracts, remaining amount, delete approval, speed)
@@ -122,3 +122,54 @@
 ## Request 2026-11-17 (daily closing report)
 - [x] Printed daily closing for the main treasury: opening + in − out = closing, cash counted vs expected, who collected what, signatures (cashier, accountant, finance manager)
 - [x] Closed day cannot be changed; reopening only after the finance manager approves (director reopens directly)
+
+## Request 2026-11-19 (reports, profits, receipt fix, file handover, medical devices, fiscal budget)
+- [x] Revenue reports management with full detail + PDF export
+- [x] Payments (money-out) reports management with full detail + PDF export
+- [x] Petty cash report management with full detail + PDF export
+- [x] Hospital profits management (net profit, by department/month, distribution policy) + PDF
+- [x] Fix receipt printing on the thermal receipt printer (sizes / printable width)
+- [x] Patient-file handover register (سركي تسليم الملفات) for all departments + printed sheet
+- [x] Medical devices register: maintenance + calibration log for every device, guidance calibration files per department
+- [x] Fiscal-year budget management (plan + closing statements in one exported file)
+
+## Request 2026-11-19 (finish pending pages, receipt paper waste, open treasury choice)
+- [x] Hospital profits page (net profit by month/department, distribution policy, PDF)
+- [x] Medical devices page (register, maintenance/calibration log, due dates, calibration guides)
+- [x] Fiscal-year budget page (plan per month, approve, plan vs actual, PDF)
+- [x] Appointments page (book / arrive / done / cancel per day)
+- [x] Lab orders & results page
+- [x] Receipt printing: no blank space above/below the slip on the thermal roll
+- [x] New receipt: treasury is a free choice (main or ICU), default by department
+- [x] Updated project ZIP in Files
+
+## Request 2026-11-20 (doctors' interventions, organized menus, data safety)
+- [x] Doctors' share on interventions (ECG, stitching...): per-service share (% or fixed), doctor per receipt line, required when a service carries a share
+- [x] Doctors' dues never lost: arrears from earlier months carried forward, detailed statement per service line
+- [x] Doctors' dues in the accounts: accrued as a liability per doctor on the receipt day, cleared by payouts
+- [x] Side menu reorganized by workflow, collapsible groups, quick page search
+- [x] Data safety: power-cut-safe saving, hourly verified backups, extra backup folder, automatic recovery, restore tool, backup health warning
+- [x] Updated project ZIP in Files
+- [x] Doctors' shares paid at the end of each shift/day by the accountant (daily section, shift-close reminder)
+
+## Request 2026-11-22 (dashboard backup warning would not go away)
+- [x] Recovery warning: «تمام، راجعت» button hides it for good (dashboard + settings)
+- [x] Backup warning refreshes right after «نسخ الآن», on page change and on its own after start-up backup
+- [x] Warn when the program is opened from inside the ZIP (data would not be kept)
+- [x] New ready-to-run Windows package
+
+## Request 2026-11-25 (legacy backup in the supplied source)
+- [x] Add old-system SQL backup import to the supplied «الكود الأخير» source, with patient files and read-only historical records
+- [x] Verify the backup parser with its tests
+- [x] Deliver the updated source ZIP, without live data or generated output
+- [x] Package and deliver the ready-to-run Windows app with the legacy import; production sign-in, actual backup upload, duplicate prevention and archive reload verified; Windows shell not run in this Linux sandbox
+
+## Request 2026-11-25 (main computer and other computers)
+- [x] Deliver separate Windows main and client ZIPs from the verified legacy-import release, with shared-data connection instructions and no live data; ZIP integrity and matching binaries verified, Windows EXE/network setup not exercised in this Linux environment.
+
+## Request 2026-11-25 (active legacy migration, not archive-only)
+- [x] Import identifiable patients, visits, tests, receipts, expenses, department prices and medicine catalogue into active sections; confirmed mappings only.
+- [x] Retain all 330,267 source rows privately with original dates/identifiers; show 53,786 unsupported/ambiguous rows as review, without fabricating debts, results, quantities, doctor dues or permissions.
+- [x] Post historical receipts and expenses exactly once; reconcile the carried-forward main balance (-15,575), retain closed-period protection and preserve existing records.
+- [x] Verify the actual backup through signed-in production UI, reload active sections and re-import without duplicates; all 315 tests pass. Deliver inspected v2 main/client Windows packages without live data. Windows execution/network remain unverified.
+- [ ] Resolve unsupported source fields into remaining active sections: blocked by missing old schema/column definitions; their original rows remain private and reviewable.

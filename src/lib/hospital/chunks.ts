@@ -33,6 +33,8 @@ export const DATED = [
   "refunds",
   "advances",
   "dailyClosings",
+  "deviceLogs",
+  "fileHandovers",
   "auditLog",
 ] as const satisfies readonly (keyof HospitalDB)[];
 type Dated = (typeof DATED)[number];

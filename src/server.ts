@@ -50,6 +50,24 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+/** The packaged LAN server has no compression edge; gzip the large state snapshot. */
+async function compressState(request: Request, response: Response): Promise<Response> {
+  if (process.env["ALRAHMA_APP"] !== "1") return response;
+  if (!request.url.includes("/api/hospital-state")) return response;
+  if (!(request.headers.get("accept-encoding") ?? "").includes("gzip")) return response;
+  if (response.status !== 200 || !response.body || response.headers.has("content-encoding"))
+    return response;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-encoding", "gzip");
+  headers.append("vary", "Accept-Encoding");
+  return new Response(response.body.pipeThrough(new CompressionStream("gzip")), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 /** Basic browser hardening for every response (the LAN app has no CDN in front of it). */
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -73,7 +91,8 @@ export default {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(response));
+      const stateResponse = await compressState(request, response);
+      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(stateResponse));
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

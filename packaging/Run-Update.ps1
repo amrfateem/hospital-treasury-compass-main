@@ -1,4 +1,4 @@
-# Runs a staged, signed update. Installed as a SYSTEM scheduled task by install-service.ps1.
+﻿# Runs a staged, signed update. Installed as a SYSTEM scheduled task by install-service.ps1.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $pathFile = Join-Path $root "app-path.txt"

@@ -20,6 +20,7 @@ foreach ($s in $updateScript) { $files += $s.FullName }
 $files += Get-ChildItem (Join-Path $ReleaseDir "AlRahmaHospital") -Filter "*.ps1" -File | ForEach-Object { $_.FullName }
 $clientTrust = Join-Path $ReleaseDir "AlRahmaHospital-client\Trust-AlRahma.ps1"
 if (Test-Path $clientTrust) { $files += $clientTrust }
+$files += Get-ChildItem (Join-Path $ReleaseDir "AlRahmaHospital-client") -Filter "*.ps1" -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
 
 foreach ($file in $files) {
   if (-not (Test-Path $file)) { continue }

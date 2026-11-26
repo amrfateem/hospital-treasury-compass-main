@@ -6,7 +6,8 @@
  * balance sheet, account ledger, daily cash flow) are computed from these entries, so every
  * number can be opened down to the entry that produced it.
  */
-import { assetValuation, invoiceAmounts, supplierInvoiceTotals } from "./finance";
+import { assetValuation, doctorFirstPeriod, doctorReceiptShare, invoiceAmounts, lineDoctor, supplierInvoiceTotals } from "./finance";
+import { netOfRefunds } from "./refunds";
 import { eInvoiceTotals } from "./eta";
 import type { HospitalDB } from "./model";
 
@@ -44,6 +45,7 @@ export const GROUPS: Record<string, { name: string; type: AccountType }> = {
   "2200": { name: "ضريبة الخصم والتحصيل المستحقة للمصلحة", type: "liability" },
   "2300": { name: "ضريبة القيمة المضافة — مخرجات", type: "liability" },
   "2400": { name: "مصروفات مستحقة", type: "liability" },
+  "2450": { name: "مستحقات الأطباء (لم تُصرف بعد)", type: "liability" },
   "2500": { name: "إيرادات مقدمة وأرصدة دائنة أخرى", type: "liability" },
   "2600": { name: "قروض وتمويل", type: "liability" },
   "3100": { name: "رأس المال والأرصدة الافتتاحية", type: "equity" },
@@ -67,7 +69,7 @@ export const GROUPS: Record<string, { name: string; type: AccountType }> = {
  * Accounts kept by their own screens (cash & banks, insurers, credit accounts, suppliers): a manual
  * entry must not touch them, or the treasury / statements would disagree with the ledger.
  */
-export const CONTROLLED_GROUPS = ["1100", "1200", "1300", "1350", "2100"];
+export const CONTROLLED_GROUPS = ["1100", "1200", "1300", "1350", "2100", "2450"];
 export const isControlled = (code: string) => CONTROLLED_GROUPS.includes(groupOf(code));
 export const groupOf = (code: string) => code.split("-")[0]!;
 export const typeOf = (code: string): AccountType => GROUPS[groupOf(code)]?.type ?? "expense";
@@ -87,6 +89,7 @@ export type EntrySource =
   | "e-invoice"
   | "credit-charge"
   | "advance-deduction"
+  | "doctor-dues"
   | "manual";
 export const ENTRY_SOURCE_LABELS: Record<EntrySource, string> = {
   "patient-invoice": "إيصال / فاتورة مريض",
@@ -98,6 +101,7 @@ export const ENTRY_SOURCE_LABELS: Record<EntrySource, string> = {
   "e-invoice": "فاتورة إلكترونية (ضريبة)",
   "credit-charge": "مديونية على حساب آجل",
   "advance-deduction": "خصم قسط سلفة من المرتب",
+  "doctor-dues": "استحقاق طبيب (نسبة / تدخل / عملية / راتب)",
   manual: "قيد يدوي (المحاسب)",
 };
 
@@ -133,7 +137,12 @@ type DB = Pick<
   | "lists"
   | "eInvoices"
 > &
-  Partial<Pick<HospitalDB, "journalEntries" | "creditCharges" | "creditAccounts" | "customAccounts" | "advances">>;
+  Partial<
+    Pick<
+      HospitalDB,
+      "journalEntries" | "creditCharges" | "creditAccounts" | "customAccounts" | "advances" | "doctors" | "doctorPayouts" | "refunds"
+    >
+  >;
 
 const dr = (account: string, amount: number, costCenter?: string): JournalLine => ({
   account,
@@ -162,7 +171,7 @@ function lastDay(period: string) {
 
 /** Chart of accounts for this hospital (groups + one sub-account per box, bank, category). */
 export function chartOfAccounts(
-  db: Pick<DB, "cashboxes" | "lists" | "creditAccounts" | "customAccounts">,
+  db: Pick<DB, "cashboxes" | "lists" | "creditAccounts" | "customAccounts" | "doctors">,
 ): Account[] {
   const out: Account[] = Object.entries(GROUPS).map(([code, g]) => ({ code, name: g.name, type: g.type, group: code }));
   for (const b of db.cashboxes) {
@@ -175,6 +184,8 @@ export function chartOfAccounts(
     out.push({ code: `5400-${c.id}`, name: c.name, type: "expense", group: "5400" });
   for (const c of db.creditAccounts ?? [])
     out.push({ code: `1350-${c.id}`, name: c.name, type: "asset", group: "1350" });
+  for (const d of db.doctors ?? [])
+    out.push({ code: `2450-${d.id}`, name: `د. ${d.name}`, type: "liability", group: "2450" });
   for (const c of db.customAccounts ?? [])
     if (GROUPS[c.group]) out.push({ code: c.code, name: c.name, type: GROUPS[c.group]!.type, group: c.group });
   return out;
@@ -243,6 +254,57 @@ export function buildJournal(db: DB, asOf: string): JournalEntry[] {
     });
   }
 
+  // Doctors' dues are owed from the day they are earned (receipt day; salary on the 1st of the
+  // month): expense 5300 against the doctor's own payable 2450, which the payout then clears.
+  const doctors = db.doctors ?? [];
+  const known = new Set(doctors.map((d) => d.id));
+  const payoutDoctor = new Map<string, string>();
+  for (const p of db.doctorPayouts ?? []) if (known.has(p.doctorId)) payoutDoctor.set(p.id, p.doctorId);
+  if (doctors.length) {
+    const invs = db.patientInvoices.map((i) => netOfRefunds(i, db.refunds ?? []));
+    for (const inv of invs) {
+      const ids = new Set<string>();
+      if (inv.doctorId) ids.add(inv.doctorId);
+      if (inv.anesthetistId) ids.add(inv.anesthetistId);
+      for (const it of inv.items) {
+        const who = lineDoctor(it, inv);
+        if (who) ids.add(who);
+      }
+      for (const id of ids) {
+        const doc = doctors.find((d) => d.id === id);
+        if (!doc) continue;
+        const share = doctorReceiptShare(doc, inv, db.lists.services).total;
+        push({
+          id: `je-drx-${inv.id}-${id}`,
+          date: inv.date,
+          number: inv.number,
+          description: `مستحق د. ${doc.name} من إيصال ${inv.patientName}`,
+          source: "doctor-dues",
+          sourceId: inv.id,
+          createdAt: inv.createdAt + 1,
+          lines: [dr("5300", share, inv.department), cr(`2450-${id}`, share)],
+        });
+      }
+    }
+    const asOfPeriod = asOf.slice(0, 7);
+    for (const doc of doctors) {
+      const salary = round2(Math.max(0, doc.monthlySalary || 0));
+      const first = salary > 0 ? doctorFirstPeriod(doc, invs, db.doctorPayouts ?? []) : null;
+      if (!first) continue;
+      for (let p = first, i = 0; p <= asOfPeriod && i < 600; p = nextMonthStart(p).slice(0, 7), i++)
+        push({
+          id: `je-drs-${doc.id}-${p}`,
+          date: `${p}-01`,
+          number: `DRS-${p.replace("-", "")}`,
+          description: `راتب د. ${doc.name} الثابت — شهر ${p}`,
+          source: "doctor-dues",
+          sourceId: doc.id,
+          createdAt: 0,
+          lines: [dr("5300", salary, doc.department), cr(`2450-${doc.id}`, salary)],
+        });
+    }
+  }
+
   // Treasury entries (invoice / supplier entries are already covered above).
   for (const t of db.transactions) {
     if (t.source === "invoice" || t.source === "supplier") continue;
@@ -269,7 +331,8 @@ export function buildJournal(db: DB, asOf: string): JournalEntry[] {
       let counter: string;
       if (t.source === "supplier-payment") counter = "2100";
       else if (t.source === "payroll") counter = "5200";
-      else if (t.source === "doctor") counter = "5300";
+      // Paying a doctor settles what was accrued to them (2450); unknown doctors stay an expense.
+      else if (t.source === "doctor") counter = payoutDoctor.get(t.ref ?? "") ? `2450-${payoutDoctor.get(t.ref ?? "")}` : "5300";
       else if (t.source === "opening") counter = "3100";
       // Refunds reverse revenue, advances are owed back by the employee, deposits go back to the patient.
       else if (t.source === "refund") counter = "4100";
@@ -634,6 +697,8 @@ export function sourceRoute(e: Pick<JournalEntry, "source" | "txSource">):
       return "/receivables";
     case "manual":
       return "/journal";
+    case "doctor-dues":
+      return "/doctors";
     default:
       switch (e.txSource) {
         case "expense":

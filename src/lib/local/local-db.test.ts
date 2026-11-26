@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +47,9 @@ describe("local database", () => {
     expect(me.username).toBe("director");
     const token = auth.createSession("u1");
     expect(auth.userForSession(token)?.id).toBe("u1");
+    const idle = auth.createSession("u1");
+    dbm.run("UPDATE sessions SET last_seen_at = 0");
+    expect(auth.userForSession(idle)).toBeNull();
     auth.deleteSession(token);
     expect(auth.userForSession(token)).toBeNull();
   });

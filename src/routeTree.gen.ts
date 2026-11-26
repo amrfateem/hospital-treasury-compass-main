@@ -14,6 +14,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedAdmissionsRouteImport } from './routes/_authenticated/admissions'
 import { Route as AuthenticatedAdvancesRouteImport } from './routes/_authenticated/advances'
+import { Route as AuthenticatedAppointmentsRouteImport } from './routes/_authenticated/appointments'
 import { Route as AuthenticatedBankRouteImport } from './routes/_authenticated/bank'
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated/billing'
 import { Route as AuthenticatedBudgetRouteImport } from './routes/_authenticated/budget'
@@ -21,21 +22,29 @@ import { Route as AuthenticatedClosingRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedControlRouteImport } from './routes/_authenticated/control'
 import { Route as AuthenticatedCostCentersRouteImport } from './routes/_authenticated/cost-centers'
 import { Route as AuthenticatedDailyClosingRouteImport } from './routes/_authenticated/daily-closing'
+import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
 import { Route as AuthenticatedDoctorsRouteImport } from './routes/_authenticated/doctors'
 import { Route as AuthenticatedEInvoicingRouteImport } from './routes/_authenticated/e-invoicing'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated/expenses'
+import { Route as AuthenticatedFileHandoverRouteImport } from './routes/_authenticated/file-handover'
 import { Route as AuthenticatedFinancialReportsRouteImport } from './routes/_authenticated/financial-reports'
+import { Route as AuthenticatedFiscalBudgetRouteImport } from './routes/_authenticated/fiscal-budget'
 import { Route as AuthenticatedInsuranceRouteImport } from './routes/_authenticated/insurance'
 import { Route as AuthenticatedInventoryRouteImport } from './routes/_authenticated/inventory'
 import { Route as AuthenticatedInvoiceExportsRouteImport } from './routes/_authenticated/invoice-exports'
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
+import { Route as AuthenticatedLabRouteImport } from './routes/_authenticated/lab'
 import { Route as AuthenticatedOrdersRouteImport } from './routes/_authenticated/orders'
 import { Route as AuthenticatedPatientsRouteImport } from './routes/_authenticated/patients'
+import { Route as AuthenticatedPaymentReportsRouteImport } from './routes/_authenticated/payment-reports'
 import { Route as AuthenticatedPayrollRouteImport } from './routes/_authenticated/payroll'
 import { Route as AuthenticatedPermissionsRouteImport } from './routes/_authenticated/permissions'
 import { Route as AuthenticatedPettyCashRouteImport } from './routes/_authenticated/petty-cash'
+import { Route as AuthenticatedPettyReportsRouteImport } from './routes/_authenticated/petty-reports'
+import { Route as AuthenticatedProfitsRouteImport } from './routes/_authenticated/profits'
 import { Route as AuthenticatedReceivablesRouteImport } from './routes/_authenticated/receivables'
 import { Route as AuthenticatedRefundsRouteImport } from './routes/_authenticated/refunds'
+import { Route as AuthenticatedRevenueReportsRouteImport } from './routes/_authenticated/revenue-reports'
 import { Route as AuthenticatedRevenuesExpensesRouteImport } from './routes/_authenticated/revenues-expenses'
 import { Route as AuthenticatedReviewRouteImport } from './routes/_authenticated/review'
 import { Route as AuthenticatedServicesRouteImport } from './routes/_authenticated/services'
@@ -48,6 +57,8 @@ import { Route as AuthenticatedSuppliersRouteImport } from './routes/_authentica
 import { Route as AuthenticatedTreasuryRouteImport } from './routes/_authenticated/treasury'
 import { Route as ApiAddressesRouteImport } from './routes/api/addresses'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiHospitalStateRouteImport } from './routes/api/hospital-state'
+import { Route as ApiLegacyImportRouteImport } from './routes/api/legacy-import'
 import { Route as ApiPingRouteImport } from './routes/api/ping'
 import { Route as ApiUploadRouteImport } from './routes/api/upload'
 import { Route as ApiFileIdRouteImport } from './routes/api/file/$id'
@@ -76,6 +87,12 @@ const AuthenticatedAdvancesRoute = AuthenticatedAdvancesRouteImport.update({
   path: '/advances',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAppointmentsRoute =
+  AuthenticatedAppointmentsRouteImport.update({
+    id: '/appointments',
+    path: '/appointments',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedBankRoute = AuthenticatedBankRouteImport.update({
   id: '/bank',
   path: '/bank',
@@ -113,6 +130,11 @@ const AuthenticatedDailyClosingRoute =
     path: '/daily-closing',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedDevicesRoute = AuthenticatedDevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDoctorsRoute = AuthenticatedDoctorsRouteImport.update({
   id: '/doctors',
   path: '/doctors',
@@ -128,10 +150,22 @@ const AuthenticatedExpensesRoute = AuthenticatedExpensesRouteImport.update({
   path: '/expenses',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedFileHandoverRoute =
+  AuthenticatedFileHandoverRouteImport.update({
+    id: '/file-handover',
+    path: '/file-handover',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedFinancialReportsRoute =
   AuthenticatedFinancialReportsRouteImport.update({
     id: '/financial-reports',
     path: '/financial-reports',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedFiscalBudgetRoute =
+  AuthenticatedFiscalBudgetRouteImport.update({
+    id: '/fiscal-budget',
+    path: '/fiscal-budget',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedInsuranceRoute = AuthenticatedInsuranceRouteImport.update({
@@ -155,6 +189,11 @@ const AuthenticatedJournalRoute = AuthenticatedJournalRouteImport.update({
   path: '/journal',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedLabRoute = AuthenticatedLabRouteImport.update({
+  id: '/lab',
+  path: '/lab',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedOrdersRoute = AuthenticatedOrdersRouteImport.update({
   id: '/orders',
   path: '/orders',
@@ -165,6 +204,12 @@ const AuthenticatedPatientsRoute = AuthenticatedPatientsRouteImport.update({
   path: '/patients',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPaymentReportsRoute =
+  AuthenticatedPaymentReportsRouteImport.update({
+    id: '/payment-reports',
+    path: '/payment-reports',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPayrollRoute = AuthenticatedPayrollRouteImport.update({
   id: '/payroll',
   path: '/payroll',
@@ -181,6 +226,17 @@ const AuthenticatedPettyCashRoute = AuthenticatedPettyCashRouteImport.update({
   path: '/petty-cash',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPettyReportsRoute =
+  AuthenticatedPettyReportsRouteImport.update({
+    id: '/petty-reports',
+    path: '/petty-reports',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProfitsRoute = AuthenticatedProfitsRouteImport.update({
+  id: '/profits',
+  path: '/profits',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedReceivablesRoute =
   AuthenticatedReceivablesRouteImport.update({
     id: '/receivables',
@@ -192,6 +248,12 @@ const AuthenticatedRefundsRoute = AuthenticatedRefundsRouteImport.update({
   path: '/refunds',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRevenueReportsRoute =
+  AuthenticatedRevenueReportsRouteImport.update({
+    id: '/revenue-reports',
+    path: '/revenue-reports',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRevenuesExpensesRoute =
   AuthenticatedRevenuesExpensesRouteImport.update({
     id: '/revenues-expenses',
@@ -254,6 +316,16 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHospitalStateRoute = ApiHospitalStateRouteImport.update({
+  id: '/api/hospital-state',
+  path: '/api/hospital-state',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLegacyImportRoute = ApiLegacyImportRouteImport.update({
+  id: '/api/legacy-import',
+  path: '/api/legacy-import',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPingRoute = ApiPingRouteImport.update({
   id: '/api/ping',
   path: '/api/ping',
@@ -275,6 +347,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/admissions': typeof AuthenticatedAdmissionsRoute
   '/advances': typeof AuthenticatedAdvancesRoute
+  '/appointments': typeof AuthenticatedAppointmentsRoute
   '/bank': typeof AuthenticatedBankRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/budget': typeof AuthenticatedBudgetRoute
@@ -282,21 +355,29 @@ export interface FileRoutesByFullPath {
   '/control': typeof AuthenticatedControlRoute
   '/cost-centers': typeof AuthenticatedCostCentersRoute
   '/daily-closing': typeof AuthenticatedDailyClosingRoute
+  '/devices': typeof AuthenticatedDevicesRoute
   '/doctors': typeof AuthenticatedDoctorsRoute
   '/e-invoicing': typeof AuthenticatedEInvoicingRoute
   '/expenses': typeof AuthenticatedExpensesRoute
+  '/file-handover': typeof AuthenticatedFileHandoverRoute
   '/financial-reports': typeof AuthenticatedFinancialReportsRoute
+  '/fiscal-budget': typeof AuthenticatedFiscalBudgetRoute
   '/insurance': typeof AuthenticatedInsuranceRoute
   '/inventory': typeof AuthenticatedInventoryRoute
   '/invoice-exports': typeof AuthenticatedInvoiceExportsRoute
   '/journal': typeof AuthenticatedJournalRoute
+  '/lab': typeof AuthenticatedLabRoute
   '/orders': typeof AuthenticatedOrdersRoute
   '/patients': typeof AuthenticatedPatientsRoute
+  '/payment-reports': typeof AuthenticatedPaymentReportsRoute
   '/payroll': typeof AuthenticatedPayrollRoute
   '/permissions': typeof AuthenticatedPermissionsRoute
   '/petty-cash': typeof AuthenticatedPettyCashRoute
+  '/petty-reports': typeof AuthenticatedPettyReportsRoute
+  '/profits': typeof AuthenticatedProfitsRoute
   '/receivables': typeof AuthenticatedReceivablesRoute
   '/refunds': typeof AuthenticatedRefundsRoute
+  '/revenue-reports': typeof AuthenticatedRevenueReportsRoute
   '/revenues-expenses': typeof AuthenticatedRevenuesExpensesRoute
   '/review': typeof AuthenticatedReviewRoute
   '/services': typeof AuthenticatedServicesRoute
@@ -309,6 +390,8 @@ export interface FileRoutesByFullPath {
   '/treasury': typeof AuthenticatedTreasuryRoute
   '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/hospital-state': typeof ApiHospitalStateRoute
+  '/api/legacy-import': typeof ApiLegacyImportRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
   '/api/file/$id': typeof ApiFileIdRoute
@@ -317,6 +400,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/admissions': typeof AuthenticatedAdmissionsRoute
   '/advances': typeof AuthenticatedAdvancesRoute
+  '/appointments': typeof AuthenticatedAppointmentsRoute
   '/bank': typeof AuthenticatedBankRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/budget': typeof AuthenticatedBudgetRoute
@@ -324,21 +408,29 @@ export interface FileRoutesByTo {
   '/control': typeof AuthenticatedControlRoute
   '/cost-centers': typeof AuthenticatedCostCentersRoute
   '/daily-closing': typeof AuthenticatedDailyClosingRoute
+  '/devices': typeof AuthenticatedDevicesRoute
   '/doctors': typeof AuthenticatedDoctorsRoute
   '/e-invoicing': typeof AuthenticatedEInvoicingRoute
   '/expenses': typeof AuthenticatedExpensesRoute
+  '/file-handover': typeof AuthenticatedFileHandoverRoute
   '/financial-reports': typeof AuthenticatedFinancialReportsRoute
+  '/fiscal-budget': typeof AuthenticatedFiscalBudgetRoute
   '/insurance': typeof AuthenticatedInsuranceRoute
   '/inventory': typeof AuthenticatedInventoryRoute
   '/invoice-exports': typeof AuthenticatedInvoiceExportsRoute
   '/journal': typeof AuthenticatedJournalRoute
+  '/lab': typeof AuthenticatedLabRoute
   '/orders': typeof AuthenticatedOrdersRoute
   '/patients': typeof AuthenticatedPatientsRoute
+  '/payment-reports': typeof AuthenticatedPaymentReportsRoute
   '/payroll': typeof AuthenticatedPayrollRoute
   '/permissions': typeof AuthenticatedPermissionsRoute
   '/petty-cash': typeof AuthenticatedPettyCashRoute
+  '/petty-reports': typeof AuthenticatedPettyReportsRoute
+  '/profits': typeof AuthenticatedProfitsRoute
   '/receivables': typeof AuthenticatedReceivablesRoute
   '/refunds': typeof AuthenticatedRefundsRoute
+  '/revenue-reports': typeof AuthenticatedRevenueReportsRoute
   '/revenues-expenses': typeof AuthenticatedRevenuesExpensesRoute
   '/review': typeof AuthenticatedReviewRoute
   '/services': typeof AuthenticatedServicesRoute
@@ -351,6 +443,8 @@ export interface FileRoutesByTo {
   '/treasury': typeof AuthenticatedTreasuryRoute
   '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/hospital-state': typeof ApiHospitalStateRoute
+  '/api/legacy-import': typeof ApiLegacyImportRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
   '/': typeof AuthenticatedIndexRoute
@@ -362,6 +456,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/admissions': typeof AuthenticatedAdmissionsRoute
   '/_authenticated/advances': typeof AuthenticatedAdvancesRoute
+  '/_authenticated/appointments': typeof AuthenticatedAppointmentsRoute
   '/_authenticated/bank': typeof AuthenticatedBankRoute
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/budget': typeof AuthenticatedBudgetRoute
@@ -369,21 +464,29 @@ export interface FileRoutesById {
   '/_authenticated/control': typeof AuthenticatedControlRoute
   '/_authenticated/cost-centers': typeof AuthenticatedCostCentersRoute
   '/_authenticated/daily-closing': typeof AuthenticatedDailyClosingRoute
+  '/_authenticated/devices': typeof AuthenticatedDevicesRoute
   '/_authenticated/doctors': typeof AuthenticatedDoctorsRoute
   '/_authenticated/e-invoicing': typeof AuthenticatedEInvoicingRoute
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
+  '/_authenticated/file-handover': typeof AuthenticatedFileHandoverRoute
   '/_authenticated/financial-reports': typeof AuthenticatedFinancialReportsRoute
+  '/_authenticated/fiscal-budget': typeof AuthenticatedFiscalBudgetRoute
   '/_authenticated/insurance': typeof AuthenticatedInsuranceRoute
   '/_authenticated/inventory': typeof AuthenticatedInventoryRoute
   '/_authenticated/invoice-exports': typeof AuthenticatedInvoiceExportsRoute
   '/_authenticated/journal': typeof AuthenticatedJournalRoute
+  '/_authenticated/lab': typeof AuthenticatedLabRoute
   '/_authenticated/orders': typeof AuthenticatedOrdersRoute
   '/_authenticated/patients': typeof AuthenticatedPatientsRoute
+  '/_authenticated/payment-reports': typeof AuthenticatedPaymentReportsRoute
   '/_authenticated/payroll': typeof AuthenticatedPayrollRoute
   '/_authenticated/permissions': typeof AuthenticatedPermissionsRoute
   '/_authenticated/petty-cash': typeof AuthenticatedPettyCashRoute
+  '/_authenticated/petty-reports': typeof AuthenticatedPettyReportsRoute
+  '/_authenticated/profits': typeof AuthenticatedProfitsRoute
   '/_authenticated/receivables': typeof AuthenticatedReceivablesRoute
   '/_authenticated/refunds': typeof AuthenticatedRefundsRoute
+  '/_authenticated/revenue-reports': typeof AuthenticatedRevenueReportsRoute
   '/_authenticated/revenues-expenses': typeof AuthenticatedRevenuesExpensesRoute
   '/_authenticated/review': typeof AuthenticatedReviewRoute
   '/_authenticated/services': typeof AuthenticatedServicesRoute
@@ -396,6 +499,8 @@ export interface FileRoutesById {
   '/_authenticated/treasury': typeof AuthenticatedTreasuryRoute
   '/api/addresses': typeof ApiAddressesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/hospital-state': typeof ApiHospitalStateRoute
+  '/api/legacy-import': typeof ApiLegacyImportRoute
   '/api/ping': typeof ApiPingRoute
   '/api/upload': typeof ApiUploadRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -408,6 +513,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admissions'
     | '/advances'
+    | '/appointments'
     | '/bank'
     | '/billing'
     | '/budget'
@@ -415,21 +521,29 @@ export interface FileRouteTypes {
     | '/control'
     | '/cost-centers'
     | '/daily-closing'
+    | '/devices'
     | '/doctors'
     | '/e-invoicing'
     | '/expenses'
+    | '/file-handover'
     | '/financial-reports'
+    | '/fiscal-budget'
     | '/insurance'
     | '/inventory'
     | '/invoice-exports'
     | '/journal'
+    | '/lab'
     | '/orders'
     | '/patients'
+    | '/payment-reports'
     | '/payroll'
     | '/permissions'
     | '/petty-cash'
+    | '/petty-reports'
+    | '/profits'
     | '/receivables'
     | '/refunds'
+    | '/revenue-reports'
     | '/revenues-expenses'
     | '/review'
     | '/services'
@@ -442,6 +556,8 @@ export interface FileRouteTypes {
     | '/treasury'
     | '/api/addresses'
     | '/api/health'
+    | '/api/hospital-state'
+    | '/api/legacy-import'
     | '/api/ping'
     | '/api/upload'
     | '/api/file/$id'
@@ -450,6 +566,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admissions'
     | '/advances'
+    | '/appointments'
     | '/bank'
     | '/billing'
     | '/budget'
@@ -457,21 +574,29 @@ export interface FileRouteTypes {
     | '/control'
     | '/cost-centers'
     | '/daily-closing'
+    | '/devices'
     | '/doctors'
     | '/e-invoicing'
     | '/expenses'
+    | '/file-handover'
     | '/financial-reports'
+    | '/fiscal-budget'
     | '/insurance'
     | '/inventory'
     | '/invoice-exports'
     | '/journal'
+    | '/lab'
     | '/orders'
     | '/patients'
+    | '/payment-reports'
     | '/payroll'
     | '/permissions'
     | '/petty-cash'
+    | '/petty-reports'
+    | '/profits'
     | '/receivables'
     | '/refunds'
+    | '/revenue-reports'
     | '/revenues-expenses'
     | '/review'
     | '/services'
@@ -484,6 +609,8 @@ export interface FileRouteTypes {
     | '/treasury'
     | '/api/addresses'
     | '/api/health'
+    | '/api/hospital-state'
+    | '/api/legacy-import'
     | '/api/ping'
     | '/api/upload'
     | '/'
@@ -494,6 +621,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/admissions'
     | '/_authenticated/advances'
+    | '/_authenticated/appointments'
     | '/_authenticated/bank'
     | '/_authenticated/billing'
     | '/_authenticated/budget'
@@ -501,21 +629,29 @@ export interface FileRouteTypes {
     | '/_authenticated/control'
     | '/_authenticated/cost-centers'
     | '/_authenticated/daily-closing'
+    | '/_authenticated/devices'
     | '/_authenticated/doctors'
     | '/_authenticated/e-invoicing'
     | '/_authenticated/expenses'
+    | '/_authenticated/file-handover'
     | '/_authenticated/financial-reports'
+    | '/_authenticated/fiscal-budget'
     | '/_authenticated/insurance'
     | '/_authenticated/inventory'
     | '/_authenticated/invoice-exports'
     | '/_authenticated/journal'
+    | '/_authenticated/lab'
     | '/_authenticated/orders'
     | '/_authenticated/patients'
+    | '/_authenticated/payment-reports'
     | '/_authenticated/payroll'
     | '/_authenticated/permissions'
     | '/_authenticated/petty-cash'
+    | '/_authenticated/petty-reports'
+    | '/_authenticated/profits'
     | '/_authenticated/receivables'
     | '/_authenticated/refunds'
+    | '/_authenticated/revenue-reports'
     | '/_authenticated/revenues-expenses'
     | '/_authenticated/review'
     | '/_authenticated/services'
@@ -528,6 +664,8 @@ export interface FileRouteTypes {
     | '/_authenticated/treasury'
     | '/api/addresses'
     | '/api/health'
+    | '/api/hospital-state'
+    | '/api/legacy-import'
     | '/api/ping'
     | '/api/upload'
     | '/_authenticated/'
@@ -539,6 +677,8 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiAddressesRoute: typeof ApiAddressesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiHospitalStateRoute: typeof ApiHospitalStateRoute
+  ApiLegacyImportRoute: typeof ApiLegacyImportRoute
   ApiPingRoute: typeof ApiPingRoute
   ApiUploadRoute: typeof ApiUploadRoute
   ApiFileIdRoute: typeof ApiFileIdRoute
@@ -579,6 +719,13 @@ declare module '@tanstack/react-router' {
       path: '/advances'
       fullPath: '/advances'
       preLoaderRoute: typeof AuthenticatedAdvancesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/appointments': {
+      id: '/_authenticated/appointments'
+      path: '/appointments'
+      fullPath: '/appointments'
+      preLoaderRoute: typeof AuthenticatedAppointmentsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/bank': {
@@ -630,6 +777,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDailyClosingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/devices': {
+      id: '/_authenticated/devices'
+      path: '/devices'
+      fullPath: '/devices'
+      preLoaderRoute: typeof AuthenticatedDevicesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/doctors': {
       id: '/_authenticated/doctors'
       path: '/doctors'
@@ -651,11 +805,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExpensesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/file-handover': {
+      id: '/_authenticated/file-handover'
+      path: '/file-handover'
+      fullPath: '/file-handover'
+      preLoaderRoute: typeof AuthenticatedFileHandoverRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/financial-reports': {
       id: '/_authenticated/financial-reports'
       path: '/financial-reports'
       fullPath: '/financial-reports'
       preLoaderRoute: typeof AuthenticatedFinancialReportsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/fiscal-budget': {
+      id: '/_authenticated/fiscal-budget'
+      path: '/fiscal-budget'
+      fullPath: '/fiscal-budget'
+      preLoaderRoute: typeof AuthenticatedFiscalBudgetRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/insurance': {
@@ -686,6 +854,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedJournalRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/lab': {
+      id: '/_authenticated/lab'
+      path: '/lab'
+      fullPath: '/lab'
+      preLoaderRoute: typeof AuthenticatedLabRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/orders': {
       id: '/_authenticated/orders'
       path: '/orders'
@@ -698,6 +873,13 @@ declare module '@tanstack/react-router' {
       path: '/patients'
       fullPath: '/patients'
       preLoaderRoute: typeof AuthenticatedPatientsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/payment-reports': {
+      id: '/_authenticated/payment-reports'
+      path: '/payment-reports'
+      fullPath: '/payment-reports'
+      preLoaderRoute: typeof AuthenticatedPaymentReportsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/payroll': {
@@ -721,6 +903,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPettyCashRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/petty-reports': {
+      id: '/_authenticated/petty-reports'
+      path: '/petty-reports'
+      fullPath: '/petty-reports'
+      preLoaderRoute: typeof AuthenticatedPettyReportsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profits': {
+      id: '/_authenticated/profits'
+      path: '/profits'
+      fullPath: '/profits'
+      preLoaderRoute: typeof AuthenticatedProfitsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/receivables': {
       id: '/_authenticated/receivables'
       path: '/receivables'
@@ -733,6 +929,13 @@ declare module '@tanstack/react-router' {
       path: '/refunds'
       fullPath: '/refunds'
       preLoaderRoute: typeof AuthenticatedRefundsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/revenue-reports': {
+      id: '/_authenticated/revenue-reports'
+      path: '/revenue-reports'
+      fullPath: '/revenue-reports'
+      preLoaderRoute: typeof AuthenticatedRevenueReportsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/revenues-expenses': {
@@ -819,6 +1022,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/hospital-state': {
+      id: '/api/hospital-state'
+      path: '/api/hospital-state'
+      fullPath: '/api/hospital-state'
+      preLoaderRoute: typeof ApiHospitalStateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/legacy-import': {
+      id: '/api/legacy-import'
+      path: '/api/legacy-import'
+      fullPath: '/api/legacy-import'
+      preLoaderRoute: typeof ApiLegacyImportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/ping': {
       id: '/api/ping'
       path: '/api/ping'
@@ -846,6 +1063,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdmissionsRoute: typeof AuthenticatedAdmissionsRoute
   AuthenticatedAdvancesRoute: typeof AuthenticatedAdvancesRoute
+  AuthenticatedAppointmentsRoute: typeof AuthenticatedAppointmentsRoute
   AuthenticatedBankRoute: typeof AuthenticatedBankRoute
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedBudgetRoute: typeof AuthenticatedBudgetRoute
@@ -853,21 +1071,29 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedControlRoute: typeof AuthenticatedControlRoute
   AuthenticatedCostCentersRoute: typeof AuthenticatedCostCentersRoute
   AuthenticatedDailyClosingRoute: typeof AuthenticatedDailyClosingRoute
+  AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
   AuthenticatedDoctorsRoute: typeof AuthenticatedDoctorsRoute
   AuthenticatedEInvoicingRoute: typeof AuthenticatedEInvoicingRoute
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
+  AuthenticatedFileHandoverRoute: typeof AuthenticatedFileHandoverRoute
   AuthenticatedFinancialReportsRoute: typeof AuthenticatedFinancialReportsRoute
+  AuthenticatedFiscalBudgetRoute: typeof AuthenticatedFiscalBudgetRoute
   AuthenticatedInsuranceRoute: typeof AuthenticatedInsuranceRoute
   AuthenticatedInventoryRoute: typeof AuthenticatedInventoryRoute
   AuthenticatedInvoiceExportsRoute: typeof AuthenticatedInvoiceExportsRoute
   AuthenticatedJournalRoute: typeof AuthenticatedJournalRoute
+  AuthenticatedLabRoute: typeof AuthenticatedLabRoute
   AuthenticatedOrdersRoute: typeof AuthenticatedOrdersRoute
   AuthenticatedPatientsRoute: typeof AuthenticatedPatientsRoute
+  AuthenticatedPaymentReportsRoute: typeof AuthenticatedPaymentReportsRoute
   AuthenticatedPayrollRoute: typeof AuthenticatedPayrollRoute
   AuthenticatedPermissionsRoute: typeof AuthenticatedPermissionsRoute
   AuthenticatedPettyCashRoute: typeof AuthenticatedPettyCashRoute
+  AuthenticatedPettyReportsRoute: typeof AuthenticatedPettyReportsRoute
+  AuthenticatedProfitsRoute: typeof AuthenticatedProfitsRoute
   AuthenticatedReceivablesRoute: typeof AuthenticatedReceivablesRoute
   AuthenticatedRefundsRoute: typeof AuthenticatedRefundsRoute
+  AuthenticatedRevenueReportsRoute: typeof AuthenticatedRevenueReportsRoute
   AuthenticatedRevenuesExpensesRoute: typeof AuthenticatedRevenuesExpensesRoute
   AuthenticatedReviewRoute: typeof AuthenticatedReviewRoute
   AuthenticatedServicesRoute: typeof AuthenticatedServicesRoute
@@ -884,6 +1110,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdmissionsRoute: AuthenticatedAdmissionsRoute,
   AuthenticatedAdvancesRoute: AuthenticatedAdvancesRoute,
+  AuthenticatedAppointmentsRoute: AuthenticatedAppointmentsRoute,
   AuthenticatedBankRoute: AuthenticatedBankRoute,
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedBudgetRoute: AuthenticatedBudgetRoute,
@@ -891,21 +1118,29 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedControlRoute: AuthenticatedControlRoute,
   AuthenticatedCostCentersRoute: AuthenticatedCostCentersRoute,
   AuthenticatedDailyClosingRoute: AuthenticatedDailyClosingRoute,
+  AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
   AuthenticatedDoctorsRoute: AuthenticatedDoctorsRoute,
   AuthenticatedEInvoicingRoute: AuthenticatedEInvoicingRoute,
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
+  AuthenticatedFileHandoverRoute: AuthenticatedFileHandoverRoute,
   AuthenticatedFinancialReportsRoute: AuthenticatedFinancialReportsRoute,
+  AuthenticatedFiscalBudgetRoute: AuthenticatedFiscalBudgetRoute,
   AuthenticatedInsuranceRoute: AuthenticatedInsuranceRoute,
   AuthenticatedInventoryRoute: AuthenticatedInventoryRoute,
   AuthenticatedInvoiceExportsRoute: AuthenticatedInvoiceExportsRoute,
   AuthenticatedJournalRoute: AuthenticatedJournalRoute,
+  AuthenticatedLabRoute: AuthenticatedLabRoute,
   AuthenticatedOrdersRoute: AuthenticatedOrdersRoute,
   AuthenticatedPatientsRoute: AuthenticatedPatientsRoute,
+  AuthenticatedPaymentReportsRoute: AuthenticatedPaymentReportsRoute,
   AuthenticatedPayrollRoute: AuthenticatedPayrollRoute,
   AuthenticatedPermissionsRoute: AuthenticatedPermissionsRoute,
   AuthenticatedPettyCashRoute: AuthenticatedPettyCashRoute,
+  AuthenticatedPettyReportsRoute: AuthenticatedPettyReportsRoute,
+  AuthenticatedProfitsRoute: AuthenticatedProfitsRoute,
   AuthenticatedReceivablesRoute: AuthenticatedReceivablesRoute,
   AuthenticatedRefundsRoute: AuthenticatedRefundsRoute,
+  AuthenticatedRevenueReportsRoute: AuthenticatedRevenueReportsRoute,
   AuthenticatedRevenuesExpensesRoute: AuthenticatedRevenuesExpensesRoute,
   AuthenticatedReviewRoute: AuthenticatedReviewRoute,
   AuthenticatedServicesRoute: AuthenticatedServicesRoute,
@@ -927,6 +1162,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiAddressesRoute: ApiAddressesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiHospitalStateRoute: ApiHospitalStateRoute,
+  ApiLegacyImportRoute: ApiLegacyImportRoute,
   ApiPingRoute: ApiPingRoute,
   ApiUploadRoute: ApiUploadRoute,
   ApiFileIdRoute: ApiFileIdRoute,

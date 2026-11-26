@@ -32,6 +32,27 @@ export function requireAdmin(me: Me) {
   if (me.role !== "admin") throw new Error("هذه الصفحة لمدير المستشفى فقط.");
 }
 
+/** Account changes are security events; keep them next to financial audit entries. */
+function logAccount(me: Me, op: string, summary: string) {
+  try {
+    const version = Number(get<{ value: string }>("SELECT value FROM meta WHERE key = 'version'")?.value ?? 0);
+    run(
+      `INSERT OR IGNORE INTO audit_log (id, at, by_name, by_id, role, op, section, summary, version)
+       VALUES (?, ?, ?, ?, ?, ?, 'users', ?, ?)`,
+      `account-${Date.now()}-${me.id}-${op}`,
+      Date.now(),
+      me.name,
+      me.id,
+      me.role,
+      op,
+      summary,
+      version,
+    );
+  } catch {
+    /* the account change already happened; never fail because of its audit row */
+  }
+}
+
 export function setupStatus() {
   return { needsSetup: countAdmins() === 0 };
 }
@@ -119,7 +140,9 @@ export function createStaff(
   requireAdmin(me);
   if (data.role === "admin")
     throw new Error("حساب المدير يُنشأ مرة واحدة فقط عند أول تشغيل. أضف موظفًا بدور آخر.");
-  createAccount(data);
+  const id = createAccount(data);
+  logAccount(me, "createStaff", `إنشاء حساب ${data.fullName.trim()} — ${data.role}`);
+  return id;
 }
 
 export function updateStaff(
@@ -147,6 +170,7 @@ export function updateStaff(
     run("INSERT INTO user_roles (user_id, role) VALUES (?, ?)", data.id, data.role);
     if (!data.active) run("DELETE FROM sessions WHERE user_id = ?", data.id);
   });
+  logAccount(me, "updateStaff", `تعديل حساب ${data.fullName.trim()} — ${data.role}${data.active ? "" : " (موقوف)"}`);
 }
 
 export function setStaffPassword(me: Me, data: { id: string; password: string }) {
@@ -154,6 +178,7 @@ export function setStaffPassword(me: Me, data: { id: string; password: string })
   if (!get("SELECT id FROM profiles WHERE id = ?", data.id)) throw new Error("الحساب غير موجود.");
   run("UPDATE profiles SET password_hash = ? WHERE id = ?", hashPassword(data.password), data.id);
   deleteUserSessions(data.id);
+  logAccount(me, "setStaffPassword", `تعيين كلمة مرور لحساب ${data.id}`);
 }
 
 export function deleteStaff(me: Me, id: string) {
@@ -162,7 +187,9 @@ export function deleteStaff(me: Me, id: string) {
   const role = get<{ role: string }>("SELECT role FROM user_roles WHERE user_id = ?", id);
   if (role?.role === "admin")
     throw new Error("لا يمكن حذف حساب المدير. استخدم أداة إعادة تعيين كلمة المرور لو فقدت الدخول.");
+  const name = get<{ full_name: string }>("SELECT full_name FROM profiles WHERE id = ?", id)?.full_name ?? id;
   run("DELETE FROM profiles WHERE id = ?", id);
+  logAccount(me, "deleteStaff", `حذف حساب ${name}`);
 }
 
 export function setStaffPermissions(me: Me, id: string, permissions: Permissions | null) {
@@ -173,4 +200,5 @@ export function setStaffPermissions(me: Me, id: string, permissions: Permissions
     permissions ? JSON.stringify(permissions) : null,
     id,
   );
+  logAccount(me, "setStaffPermissions", `تعديل صلاحيات الحساب ${id}`);
 }

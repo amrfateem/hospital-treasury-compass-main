@@ -24,6 +24,7 @@ import { UsersManager } from "@/components/hospital/settings/UsersManager";
 import { CashboxesManager } from "@/components/hospital/settings/CashboxesManager";
 import { BranchesCurrencies } from "@/components/hospital/settings/BranchesCurrencies";
 import { BackupPanel } from "@/components/hospital/settings/BackupPanel";
+import { LegacyImportPanel } from "@/components/hospital/settings/LegacyImportPanel";
 import { DEFAULT_PAYROLL_SETTINGS } from "@/lib/hospital/payroll-tax";
 import {
   saveSettings,
@@ -119,7 +120,10 @@ function SettingsPage() {
         )}
         {owner && (
           <TabsContent value="backup">
-            <BackupPanel />
+            <div className="grid gap-4">
+              <BackupPanel />
+              <LegacyImportPanel />
+            </div>
           </TabsContent>
         )}
         <TabsContent value="boxes">

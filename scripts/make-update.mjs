@@ -16,7 +16,10 @@ const payload = join(out, "payload");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(payload, { recursive: true });
 cpSync(join(root, ".output", "server"), join(payload, "server"), { recursive: true });
+copyFileSync(join(root, "packaging", "tls-entry.mjs"), join(payload, "server", "tls-entry.mjs"));
 cpSync(join(root, ".output", "public"), join(payload, "public"), { recursive: true });
+if (existsSync(join(root, "release", "AlRahmaHospital", "tls")))
+  cpSync(join(root, "release", "AlRahmaHospital", "tls"), join(payload, "tls"), { recursive: true });
 
 // The desktop shell carries the download and direct-print fixes, so it travels with the update.
 for (const name of ["AlRahmaHospital.exe", "WebView2Loader.dll"]) {

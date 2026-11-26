@@ -13,9 +13,44 @@ import { invoiceContext } from "./invoice-export";
 import { listLabel, type HospitalDB, type PatientInvoice } from "./model";
 
 export type PaperWidth = 80 | 58;
+/**
+ * How the print window sizes the page:
+ * - "roll": no page size — the printer's own roll paper is used and the slip starts at the top
+ *   edge, so the driver never centres it on a longer page (no blank paper above/below).
+ * - "exact": the page is exactly one slip tall, for drivers that default to A4 and shrink it.
+ */
+export type ReceiptPageMode = "roll" | "exact";
+export type ReceiptFontScale = "small" | "normal" | "large";
+const FONT_SCALE: Record<ReceiptFontScale, number> = { small: 0.88, normal: 1, large: 1.14 };
+
+/**
+ * Thermal heads never print the whole roll: an 80 mm roll prints 72 mm (576 dots at 203 dpi),
+ * a 58 mm roll prints 48 mm (384 dots). Content wider than this is cut off at the edges or
+ * shrunk by the driver, so the slip is laid out at the printable width and centred.
+ */
+export const PRINTABLE_MM: Record<PaperWidth, number> = { 80: 72, 58: 48 };
+export const DOTS: Record<PaperWidth, number> = { 80: 576, 58: 384 };
+
+/** The printable width actually used (per-device override, clamped to the roll). */
+export function printableWidth(width: PaperWidth, override?: number | null) {
+  const n = Number(override);
+  if (!override || !Number.isFinite(n)) return PRINTABLE_MM[width];
+  return Math.min(width, Math.max(width - 20, Math.round(n)));
+}
+
+/** Left margin (mm) that centres the slip on the roll, shifted by the device offset. */
+export function slipLeftMm(width: PaperWidth, printable: number, offsetMm = 0) {
+  const free = width - printable;
+  return Math.round(Math.min(free, Math.max(0, free / 2 + (Number(offsetMm) || 0))) * 10) / 10;
+}
 
 export interface ThermalOptions {
   width: PaperWidth;
+  /** Printable width in mm (defaults to 72 for 80 mm rolls, 48 for 58 mm). */
+  printableMm?: number | undefined;
+  /** Horizontal shift in mm (+ moves the print to the right) for printers that print off-centre. */
+  offsetMm?: number | undefined;
+  fontScale?: ReceiptFontScale | undefined;
   copies: number;
   /** The receipt was already printed once — marks the slip as a copy. */
   reprint?: boolean;
@@ -124,22 +159,26 @@ export function thermalReceiptHtml(
 
   const copies = Math.min(3, Math.max(1, Math.round(opts.copies || 1)));
   const narrow = opts.width === 58;
+  const printable = printableWidth(opts.width, opts.printableMm);
+  const left = slipLeftMm(opts.width, printable, opts.offsetMm);
+  const k = FONT_SCALE[opts.fontScale ?? "normal"] ?? 1;
+  const px = (n: number) => `${Math.round(n * k * 10) / 10}px`;
   return `<!doctype html>
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>إيصال ${esc(inv.number)}</title>
+<html lang="ar" dir="rtl" data-paper="${opts.width}" data-printable="${printable}"><head><meta charset="utf-8"><title>إيصال ${esc(inv.number)}</title>
 <style>
 @font-face { font-family: Tajawal; font-style: normal; font-weight: 400; src: url(${tajawal400}) format("woff2"); font-display: swap; }
 @font-face { font-family: Tajawal; font-style: normal; font-weight: 700; src: url(${tajawal700}) format("woff2"); font-display: swap; }
 @page { margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-body { width: ${opts.width}mm; font-family: Tajawal, Tahoma, Arial, sans-serif; font-size: ${narrow ? 10.5 : 12}px; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.slip { padding: 2mm ${narrow ? 2 : 4}mm 4mm; break-after: page; }
+body { width: ${opts.width}mm; font-family: Tajawal, Tahoma, Arial, sans-serif; font-size: ${px(narrow ? 10.5 : 12)}; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.slip { width: ${printable}mm; margin: 0 0 0 ${left}mm; padding: 0 ${narrow ? 1 : 1.5}mm 2mm; overflow: hidden; break-after: page; break-inside: avoid; }
 .slip:last-child { break-after: auto; }
 header { text-align: center; border-top: 3px solid #000; border-bottom: 1px solid #000; padding: 8px 0; margin-bottom: 9px; }
-h1 { font-size: ${narrow ? 15 : 20}px; font-weight: 800; margin: 0 0 3px; line-height: 1.5; }
-header p { margin: 2px 0; font-size: ${narrow ? 9 : 10.5}px; overflow-wrap: anywhere; }
+h1 { font-size: ${px(narrow ? 15 : 20)}; font-weight: 800; margin: 0 0 3px; line-height: 1.5; }
+header p { margin: 2px 0; font-size: ${px(narrow ? 9 : 10.5)}; overflow-wrap: anywhere; }
 .owner { font-weight: 700; }
-.title { width: fit-content; max-width: 100%; margin: 9px auto; padding: 4px 10px; background: #000; color: #fff; border-radius: 5px; text-align: center; font-weight: 800; font-size: ${narrow ? 11 : 13}px; }
+.title { width: fit-content; max-width: 100%; margin: 9px auto; padding: 4px 10px; background: #000; color: #fff; border-radius: 5px; text-align: center; font-weight: 800; font-size: ${px(narrow ? 11 : 13)}; }
 .copy { display: block; font-size: 0.8em; }
 .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 0; }
 .row > span { flex-shrink: 0; }
@@ -157,18 +196,23 @@ th:nth-child(2) { width: 12%; } th.v { width: 31%; }
 .d { text-align: right; } .v { text-align: left; }
 .totals { border-bottom: 1px solid #000; padding: 3px 0 8px; margin-bottom: 5px; }
 .due { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #000; color: #fff; border: 2px solid #000; border-radius: 6px; padding: 7px; margin: 7px 0; font-weight: 800; }
-.due span { font-size: ${narrow ? 10 : 12}px; } .due b { font-size: ${narrow ? 14 : 19}px; white-space: nowrap; }
+.due span { font-size: ${px(narrow ? 10 : 12)}; } .due b { font-size: ${px(narrow ? 14 : 19)}; white-space: nowrap; }
 .remaining { background: #fff; color: #000; border-style: dashed; }
 .notes { margin: 8px 0; padding: 5px 0; border-bottom: 1px dotted #000; overflow-wrap: anywhere; }
-footer { text-align: center; margin-top: 8px; font-size: ${narrow ? 9 : 10}px; }
-footer p { margin: 4px 0; } .ornament { font-size: 13px; letter-spacing: 4px; }
-.reference { font-family: monospace; font-size: ${narrow ? 14 : 18}px; font-weight: 700; margin: 10px 0 3px; overflow-wrap: anywhere; }
+footer { text-align: center; margin-top: 8px; font-size: ${px(narrow ? 9 : 10)}; }
+footer p { margin: 4px 0; } .ornament { font-size: ${px(13)}; letter-spacing: 4px; }
+.reference { font-family: monospace; font-size: ${px(narrow ? 14 : 18)}; font-weight: 700; margin: 10px 0 3px; overflow-wrap: anywhere; }
 .muted { font-size: .85em; }
 </style></head><body>${Array.from({ length: copies }, () => slip).join("")}</body></html>`;
 }
 
+/** The extra @page rule for the print window ("" in roll mode: the printer's paper is used). */
+export function pageRule(mode: ReceiptPageMode, widthMm: number, heightMm: number) {
+  return mode === "exact" ? `@page { size: ${widthMm}mm ${Math.max(40, Math.ceil(heightMm))}mm; margin: 0; }` : "@page { margin: 0; }";
+}
+
 /** Prints a standalone HTML page through a hidden iframe (opens the browser print window). */
-export function printHtml(html: string, widthMm: number): Promise<void> {
+export function printHtml(html: string, widthMm: number, mode: ReceiptPageMode = "roll"): Promise<void> {
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
@@ -189,17 +233,14 @@ export function printHtml(html: string, widthMm: number): Promise<void> {
       } catch {
         /* print with the fallback font */
       }
-      // Chromium ignores `size: 80mm auto` and falls back to A4, which the thermal driver then
-      // shrinks to a tiny strip. An explicit two-length page size is honoured, so measure the
-      // first slip and send exactly one slip per page.
+      // Roll mode: no page size, so the slip starts at the top of the printer's roll paper. A page
+      // shorter than the driver's paper is centred by Windows printing (blank paper above and
+      // below), which is why exact mode is only for drivers that default to A4.
       const slip = doc.querySelector<HTMLElement>(".slip");
       const pxPerMm = 96 / 25.4;
-      const heightMm = Math.max(
-        40,
-        Math.ceil(((slip?.getBoundingClientRect().height ?? 240) + 2) / pxPerMm),
-      );
+      const heightMm = ((slip?.getBoundingClientRect().height ?? 240) + 2) / pxPerMm;
       const page = doc.createElement("style");
-      page.textContent = `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`;
+      page.textContent = pageRule(mode, widthMm, heightMm);
       doc.head.appendChild(page);
       win.addEventListener("afterprint", cleanup, { once: true });
       // Safety net if the dialog never reports afterprint.

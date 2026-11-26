@@ -43,6 +43,22 @@ describe("two cash treasuries", () => {
     expect(db.shifts.find((s) => s.id === "s-lab")!.boxId).toBe(MAIN_BOX_ID);
   });
 
+  it("lets the receipt pick main or ICU treasury freely, but never a bank for desk staff", () => {
+    let db = emptyDB();
+    db.cashboxes = [...db.cashboxes, { id: "bank-1", name: "بنك مصر", kind: "bank", active: true }];
+    db = runOp(db, "openShift", { id: "s-lab", openingFloat: 0 }, ctx(lab));
+    db = runOp(db, "savePatientInvoice", { id: "i-to-icu", input: { ...invoice("lab", "تحليل", 100), boxId: ICU_BOX_ID } }, ctx(lab));
+    db = runOp(db, "savePatientInvoice", { id: "i-to-bank", input: { ...invoice("lab", "تحليل", 100), boxId: "bank-1" } }, ctx(lab));
+    db = runOp(db, "openShift", { id: "s-icu", openingFloat: 0 }, ctx(icu));
+    db = runOp(db, "savePatientInvoice", { id: "i-icu-main", input: { ...invoice("icu", "إقامة عناية", 2500), boxId: MAIN_BOX_ID } }, ctx(icu));
+
+    expect(db.patientInvoices.find((i) => i.id === "i-to-icu")!.boxId).toBe(ICU_BOX_ID);
+    expect(db.transactions.find((t) => t.ref === "i-to-icu")!.boxId).toBe(ICU_BOX_ID);
+    expect(db.patientInvoices.find((i) => i.id === "i-to-bank")!.boxId).toBe(MAIN_BOX_ID);
+    expect(db.patientInvoices.find((i) => i.id === "i-icu-main")!.boxId).toBe(MAIN_BOX_ID);
+    expect(boxBalance(ICU_BOX_ID, db.transactions, db.transfers)).toBe(100);
+  });
+
   it("locks a service price unless it is marked variable", () => {
     const db = emptyDB();
     db.lists.services = [

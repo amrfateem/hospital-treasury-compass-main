@@ -10,6 +10,8 @@ import { ROLE_RANK, type Me } from "./me";
 
 export const SESSION_COOKIE = "alrahma_session";
 export const SESSION_DAYS = 30;
+/** A shared reception PC must not stay signed in for the next shift. */
+const IDLE_MS = 12 * 60 * 60 * 1000;
 
 export interface ProfileRow {
   id: string;
@@ -118,6 +120,10 @@ export function userForSession(token: string | undefined | null): Me | null {
   );
   if (!row || !row.active) return null;
   if (row.expires_at < Date.now()) {
+    run("DELETE FROM sessions WHERE token_hash = ?", hash);
+    return null;
+  }
+  if (Date.now() - row.last_seen_at > IDLE_MS) {
     run("DELETE FROM sessions WHERE token_hash = ?", hash);
     return null;
   }

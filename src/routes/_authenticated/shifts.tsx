@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { isDeskRole } from "@/lib/hospital/permissions";
 import { DoorClosed, DoorOpen, FileDown, Timer } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -16,7 +16,8 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/hospital/ui";
 import { DocInfoGrid, EmptyRow, FieldRow, HeadRow, TableCard, Td, Th, usePdfExport } from "@/components/hospital/kit";
 import { OfficialDocument, SignatureBlock } from "@/components/hospital/OfficialDocument";
-import { shiftDifferences, shiftExpected } from "@/lib/hospital/finance";
+import { doctorDay, shiftDifferences, shiftExpected } from "@/lib/hospital/finance";
+import { netOfRefunds } from "@/lib/hospital/refunds";
 import { boxForRole } from "@/lib/hospital/model";
 import { dateLabel, egp, isoDate, money } from "@/lib/hospital/format";
 import {
@@ -247,6 +248,15 @@ function CloseDialog({ shift, onClose }: { shift: Shift | null; onClose: () => v
   );
   const [counted, setCounted] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
+  /** Doctors' shares still unpaid today — a reminder to pay them before the shift closes. */
+  const doctorsDue = useMemo(() => {
+    if (!shift || !db.doctors.length) return [];
+    const today = isoDate(new Date());
+    const invs = db.patientInvoices.map((i) => netOfRefunds(i, db.refunds));
+    return db.doctors
+      .map((d) => ({ name: d.name, due: doctorDay(d, invs, db.doctorPayouts, today, db.lists.services).due }))
+      .filter((x) => x.due > 0.004);
+  }, [shift, db.doctors, db.patientInvoices, db.refunds, db.doctorPayouts, db.lists.services]);
   useEffect(() => {
     if (!shift) return;
     setCounted(Object.fromEntries(Object.entries(expected).map(([m, v]) => [m, String(v)])));
@@ -282,6 +292,17 @@ function CloseDialog({ shift, onClose }: { shift: Shift | null; onClose: () => v
           <p className={cn("mt-2 rounded-lg p-2 text-sm font-semibold", diffs.diff < 0 ? "bg-expense/10 text-expense" : diffs.diff > 0 ? "bg-income/10 text-income" : "bg-muted")}>
             {diffs.diff < 0 ? `عجز ${egp(-diffs.diff)}` : diffs.diff > 0 ? `زيادة ${egp(diffs.diff)}` : "مطابق — لا يوجد فرق"}
           </p>
+          {doctorsDue.length > 0 && (
+            <div role="alert" className="mt-2 rounded-lg border border-copper/40 bg-copper/10 p-2 text-xs">
+              <p className="font-semibold text-copper">لسه فيه حق أطباء النهارده ما اتصرفش:</p>
+              <p className="mt-1">
+                {doctorsDue.map((x) => `د. ${x.name} ${egp(x.due)}`).join(" • ")}
+              </p>
+              <Link to="/doctors" className="mt-1 inline-block font-semibold text-primary underline">
+                اصرفه من صفحة الأطباء قبل التقفيل
+              </Link>
+            </div>
+          )}
           <p className="mt-2 rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">
             الفلوس بتتسلّم للخزينة الرئيسية — التقفيل بيثبت اللي اتسلّم على اسم صاحب الوردية.
           </p>

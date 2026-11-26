@@ -12,7 +12,13 @@ import {
 } from "./constants";
 import {
   boxBalance,
+  doctorAccount,
+  doctorDay,
+  doctorDues,
   invoiceAmounts,
+  lineDoctor,
+  serviceOfLine,
+  shareRuleFor,
   shiftDifferences,
   shiftExpected,
   stockStatus,
@@ -20,6 +26,7 @@ import {
 import {
   can,
   canApprove,
+  canPayDoctorDaily,
   canSpendDirectly,
   discountPct,
   isDeskRole,
@@ -36,10 +43,15 @@ import { GROUPS, isControlled } from "./ledger";
 import { contractProblem, nextContractNumber, type ContractInput } from "./hr";
 import { parseNationalId } from "./national-id";
 import { issueUnitCost } from "./pharmacy";
-import { refundPlan } from "./refunds";
+import { netOfRefunds, refundPlan } from "./refunds";
 import { depositsOf, dischargeSettlement } from "./inpatient";
 import { payrollDeductions } from "./advances";
+import type { CalibrationGuide, DeviceLog, DeviceStatus, MedicalDevice } from "./devices";
+import { receiveStatus, type FileHandover, type HandoverItem } from "./handover";
+import { cleanMonths, type FiscalBudget, type FiscalBudgetLine } from "./fiscal-budget";
+import { policyProblem, type ProfitPolicy } from "./profits";
 import { computeMonthlyPayroll, isEmployedInPeriod } from "./payroll-tax";
+import { mergeLegacyDocument, type LegacyDocument } from "@/lib/legacy/migration";
 import {
   boxForDepartment,
   boxForRole,
@@ -140,6 +152,8 @@ export function resetDB(db: HospitalDB, mode: ResetMode): HospitalDB {
     lists: db.lists,
     settings: db.settings,
     cashboxes: db.cashboxes,
+    medicalDevices: db.medicalDevices,
+    calibrationGuides: db.calibrationGuides,
   };
 }
 
@@ -326,7 +340,7 @@ function deskBox(db: HospitalDB, boxId: string | undefined, ctx: OpCtx) {
   return box;
 }
 
-/** Receipts always land in the treasury of their department; the browser cannot choose another. */
+/** Default treasury of a receipt's department (the receipt form may choose another cash treasury). */
 function invoiceBox(db: HospitalDB, department: string | undefined) {
   const box = boxForDepartment(department);
   requireBox(db, box);
@@ -334,13 +348,25 @@ function invoiceBox(db: HospitalDB, department: string | undefined) {
 }
 
 /** A non-variable service price is fixed from the department price list. */
-function normalizeInvoiceItems(db: HospitalDB, department: string, clinicId: string | undefined, items: InvoiceItem[], ctx: OpCtx) {
-  return items.map((it) => {
+function normalizeInvoiceItems(
+  db: HospitalDB,
+  department: string,
+  clinicId: string | undefined,
+  items: InvoiceItem[],
+  _ctx: OpCtx,
+  invoiceDoctor?: string | undefined,
+) {
+  return items.map((raw) => {
+    // A line keeps its own doctor only when it is a real doctor other than the receipt's.
+    const { serviceId: _sid, doctorId: lineDr, ...it } = raw;
+    const doctorId =
+      lineDr && lineDr !== invoiceDoctor && db.doctors.some((d) => d.id === lineDr) ? lineDr : undefined;
+    const base: InvoiceItem = doctorId ? { ...it, doctorId } : it;
     const name = it.description.trim();
     if (it.stockItemId) {
       const item = db.stockItems.find((x) => x.id === it.stockItemId);
-      if (item?.salePrice != null) return { ...it, unitPrice: round2(item.salePrice) };
-      return it;
+      if (item?.salePrice != null) return { ...base, unitPrice: round2(item.salePrice) };
+      return base;
     }
     const candidates = db.lists.services.filter(
       (s) => s.name.trim() === name && (!s.department || s.department === department || s.department === clinicId),
@@ -349,10 +375,33 @@ function normalizeInvoiceItems(db: HospitalDB, department: string, clinicId: str
       candidates.find((s) => s.department === department) ??
       candidates.find((s) => s.department === clinicId) ??
       candidates.find((s) => !s.department);
-    if (svc && !svc.variablePrice) return { ...it, unitPrice: round2(svc.price) };
-    // Old/manual lines stay editable; the receipt screen hides the manual line for non-editors.
-    return it;
+    if (!svc) return base; // Old/manual lines stay editable; the receipt screen hides the manual line for non-editors.
+    const kind = base.kind ?? svc.kind;
+    const withSvc: InvoiceItem = kind ? { ...base, serviceId: svc.id, kind } : { ...base, serviceId: svc.id };
+    return svc.variablePrice ? withSvc : { ...withSvc, unitPrice: round2(svc.price) };
   });
+}
+
+/** Freezes each intervention's doctor share on its line, so changing a rate later never rewrites old receipts. */
+function freezeDoctorRules(db: HospitalDB, inv: Pick<PatientInvoice, "items" | "doctorId" | "department" | "clinicId">): InvoiceItem[] {
+  return inv.items.map((raw) => {
+    const { doctorRule: _r, ...it } = raw;
+    const who = lineDoctor(it, inv);
+    const doc = who ? db.doctors.find((d) => d.id === who) : undefined;
+    if (!doc) return it;
+    const found = shareRuleFor(doc, it, serviceOfLine(db.lists.services, it, inv.department, inv.clinicId));
+    return found && found.source !== "general" ? { ...it, doctorRule: found.rule } : it;
+  });
+}
+
+/** A service that carries a doctor's share must say which doctor asked for / did it. */
+function requireShareDoctors(db: HospitalDB, inv: Pick<PatientInvoice, "items" | "doctorId" | "department" | "clinicId">) {
+  for (const it of inv.items) {
+    if (it.stockItemId || it.kind === "surgery" || lineDoctor(it, inv)) continue;
+    const svc = serviceOfLine(db.lists.services, it, inv.department, inv.clinicId);
+    if (svc?.doctorShare && svc.doctorShare.value > 0)
+      fail(`«${it.description}» ليها نسبة للطبيب — اختر الطبيب اللي طلبها أو عملها عشان حقه ما يضيعش.`);
+  }
 }
 
 function enoughCash(db: HospitalDB, boxId: string, amount: number) {
@@ -436,7 +485,17 @@ export function viewFor(db: HospitalDB, actor: Actor): HospitalDB {
     v.creditCharges = [];
     v.transactions = v.transactions.filter((t) => t.source !== "collection" || CASH_SECTIONS.some(see));
   }
-  if (!see("costCenters") && !see("accounting")) v.budgets = [];
+  if (!see("costCenters") && !see("accounting")) {
+    v.budgets = [];
+    v.fiscalBudgets = [];
+  }
+  if (!see("reports") && !see("accounting")) v.profitPolicies = [];
+  if (!see("devices")) {
+    v.medicalDevices = [];
+    v.deviceLogs = [];
+    v.calibrationGuides = [];
+  }
+  if (!see("fileHandover")) v.fileHandovers = [];
   if (!see("doctors")) {
     v.doctorPayouts = [];
     v.doctors = db.doctors.map((d) => ({
@@ -701,6 +760,67 @@ function requireApprover(
 }
 
 /** Money and stock leave directly only by the finance manager or the director. */
+interface DoctorPayoutInput {
+  id: string;
+  doctorId: string;
+  period: string;
+  date: string;
+  amount: number;
+  boxId: string;
+  note?: string | undefined;
+  kind?: "daily" | undefined;
+}
+
+/** Pays a doctor from a cash box, never above what is owed (or, for a daily payout, above the day's unpaid shares). */
+function withDoctorPayout(db: HospitalDB, a: DoctorPayoutInput, ctx: OpCtx): HospitalDB {
+    const doc = db.doctors.find((d) => d.id === a.doctorId);
+    if (!doc) fail("الطبيب غير موجود.");
+    if (!(a.amount > 0)) fail("المبلغ يجب أن يكون أكبر من صفر.");
+    if (!/^\d{4}-\d{2}$/.test(a.period)) fail("اختر شهر المستحقات.");
+    requireBox(db, a.boxId);
+    // Never pay a doctor more than is owed: the month's remainder, or everything left up to it.
+    const invs = db.patientInvoices.map((i) => netOfRefunds(i, db.refunds));
+    const month = doctorDues(doc!, invs, db.doctorPayouts, a.period, db.lists.services).remaining;
+    const upTo = doctorAccount(doc!, invs, db.doctorPayouts, a.period, db.lists.services).balance;
+    const owed = round2(Math.max(month, upTo));
+    if (a.amount > owed + 0.01) fail(`المستحق للطبيب حتى ${a.period} هو ${owed} ج.م فقط.`);
+    if (a.kind === "daily") {
+      if (a.date.slice(0, 7) !== a.period) fail("صرف حق اليوم لازم يكون عن شهر نفس اليوم.");
+      const day = doctorDay(doc!, invs, db.doctorPayouts, a.date, db.lists.services).due;
+      if (a.amount > day + 0.01) fail(`حق ${doc!.name} اللي لسه ما اتصرفش لحد ${a.date} هو ${day} ج.م فقط.`);
+      // Paid in cash from the drawer at the end of the shift: never more than the treasury holds.
+      enoughCash(db, a.boxId, a.amount);
+    }
+    const number = nextNumber(
+      db.doctorPayouts.map((p) => p.number),
+      "DOC",
+      a.date,
+    );
+    return {
+      ...db,
+      doctorPayouts: [
+        ...db.doctorPayouts,
+        { ...a, kind: a.kind === "daily" ? ("daily" as const) : undefined, number, note: a.note?.trim() || undefined, createdAt: ctx.now },
+      ],
+      transactions: [
+        ...db.transactions,
+        {
+          id: `tx-${a.id}`,
+          date: a.date,
+          department: doc!.department,
+          kind: "out",
+          description: `${a.kind === "daily" ? `حق د. ${doc!.name} عن يوم ${a.date}` : `مستحقات د. ${doc!.name} عن ${a.period}`}${a.note ? ` — ${a.note}` : ""}`,
+          amount: a.amount,
+          receiptId: number,
+          source: "doctor",
+          ref: a.id,
+          ...txBase(db, a.boxId, ctx),
+          method: "cash",
+        },
+      ],
+    };
+  }
+
 function requireDirectSpender(ctx: OpCtx) {
   if (!canSpendDirectly(ctx.actor))
     fail("أي صرف يتم بأمر صرف يعتمده المدير المالي — من صفحة أوامر الصرف والطلبيات.");
@@ -764,14 +884,17 @@ export const OPS = {
         if (am.discount > 0 && discountPct(am.subtotal, am.discount) > cap + 0.001)
           fail(`أقصى خصم مسموح لك ${cap}٪ من قيمة الإيصال — الخصم الأكبر يعمله المدير المالي.`);
       }
-      // ICU receipts always go to the ICU treasury; every other department to the main one.
-      // Accountants may still route a receipt to a bank account; desk staff may not.
+      // The cash treasury defaults to the department's (ICU → ICU, others → main), but whoever
+      // writes the receipt may pick any active cash treasury. Only non-desk staff may route a
+      // receipt to a bank account instead.
       let boxId = invoiceBox(db, input.department);
-      const requestedBox = input.boxId ? db.cashboxes.find((b) => b.id === input.boxId) : undefined;
-      if (!isDeskRole(ctx.actor.role) && input.department !== "icu" && requestedBox?.kind === "bank")
+      const requestedBox = input.boxId ? db.cashboxes.find((b) => b.id === input.boxId && b.active) : undefined;
+      if (requestedBox && isCashBox(requestedBox)) boxId = requestedBox.id;
+      else if (!isDeskRole(ctx.actor.role) && input.department !== "icu" && requestedBox?.kind === "bank")
         boxId = requestedBox.id;
-      const items = normalizeInvoiceItems(db, input.department, input.clinicId, input.items ?? [], ctx);
-      const normalized = { ...input, items };
+      const items = normalizeInvoiceItems(db, input.department, input.clinicId, input.items ?? [], ctx, input.doctorId);
+      requireShareDoctors(db, { ...input, items });
+      const normalized = { ...input, items: freezeDoctorRules(db, { ...input, items }) };
       const shift = existing ? existing.shiftId : openShiftOf(db, ctx.actor.id)?.id;
       if (reception && !existing && !shift) fail(NO_SHIFT);
       const inv: PatientInvoice = existing
@@ -1491,55 +1614,27 @@ export const OPS = {
   }),
   deleteDoctor: op<{ id: string }>("doctors", (db, { id }) => {
     if (
-      db.patientInvoices.some((i) => i.doctorId === id) ||
+      db.patientInvoices.some(
+        (i) => i.doctorId === id || i.anesthetistId === id || i.items.some((it) => it.doctorId === id),
+      ) ||
       db.doctorPayouts.some((p) => p.doctorId === id)
     )
       fail("للطبيب فواتير أو مستحقات مسجلة؛ يمكنك إيقافه بدل الحذف.");
     return { ...db, doctors: db.doctors.filter((d) => d.id !== id) };
   }),
-  payDoctor: op<{
-    id: string;
-    doctorId: string;
-    period: string;
-    date: string;
-    amount: number;
-    boxId: string;
-    note?: string | undefined;
-  }>("doctors", (db, a, ctx) => {
+  payDoctor: op<DoctorPayoutInput>("doctors", (db, a, ctx) => {
     requireDirectSpender(ctx);
-    const doc = db.doctors.find((d) => d.id === a.doctorId);
-    if (!doc) fail("الطبيب غير موجود.");
-    if (!(a.amount > 0)) fail("المبلغ يجب أن يكون أكبر من صفر.");
-    requireBox(db, a.boxId);
-    const number = nextNumber(
-      db.doctorPayouts.map((p) => p.number),
-      "DOC",
-      a.date,
-    );
-    return {
-      ...db,
-      doctorPayouts: [
-        ...db.doctorPayouts,
-        { ...a, number, note: a.note?.trim() || undefined, createdAt: ctx.now },
-      ],
-      transactions: [
-        ...db.transactions,
-        {
-          id: `tx-${a.id}`,
-          date: a.date,
-          department: doc!.department,
-          kind: "out",
-          description: `مستحقات د. ${doc!.name} عن ${a.period}${a.note ? ` — ${a.note}` : ""}`,
-          amount: a.amount,
-          receiptId: number,
-          source: "doctor",
-          ref: a.id,
-          ...txBase(db, a.boxId, ctx),
-          method: "cash",
-        },
-      ],
-    };
+    return withDoctorPayout(db, a, ctx);
   }),
+  /** End-of-shift/day payout of a doctor's shares; the accountant may pay it from his drawer. */
+  payDoctorDaily: op<Omit<DoctorPayoutInput, "kind">>(
+    "treasury",
+    (db, a, ctx) => {
+      if (!canPayDoctorDaily(ctx.actor)) fail("صرف حق الأطباء اليومي للمحاسب أو المدير المالي أو المدير فقط.");
+      return withDoctorPayout(db, { ...a, kind: "daily" }, ctx);
+    },
+    "add",
+  ),
   deleteDoctorPayout: op<{ id: string }>("doctors", (db, { id }) => ({
     ...db,
     doctorPayouts: db.doctorPayouts.filter((p) => p.id !== id),
@@ -2498,6 +2593,215 @@ export const OPS = {
     };
   }),
 
+  /* ---------- Medical devices, maintenance & calibration ---------- */
+  saveDevice: op<MedicalDevice>("devices", (db, d, ctx) => {
+    if (!d.name?.trim()) fail("اكتب اسم الجهاز.");
+    if (!db.departments.some((x) => x.id === d.department)) fail("اختر قسم الجهاز.");
+    const every = (n: unknown) => Math.min(120, Math.max(0, Math.round(Number(n) || 0)));
+    const existing = db.medicalDevices.find((x) => x.id === d.id);
+    const used = db.medicalDevices.filter((x) => x.id !== d.id).map((x) => x.code);
+    const code = d.code?.trim() || nextNumber(used, "DEV", ctx.today);
+    if (used.includes(code)) fail(`الكود ${code} مستخدم لجهاز آخر.`);
+    const device: MedicalDevice = {
+      ...d,
+      name: d.name.trim(),
+      code,
+      status: d.status ?? "working",
+      risk: d.risk ?? "medium",
+      cost: d.cost && d.cost > 0 ? round2(d.cost) : undefined,
+      maintenanceEveryMonths: every(d.maintenanceEveryMonths),
+      calibrationEveryMonths: every(d.calibrationEveryMonths),
+      createdAt: existing?.createdAt ?? ctx.now,
+      by: existing?.by ?? ctx.actor.name,
+    };
+    return { ...db, medicalDevices: upsert(db.medicalDevices, device) };
+  }),
+  deleteDevice: op<{ id: string }>("devices", (db, { id }) => ({
+    ...db,
+    medicalDevices: db.medicalDevices.filter((d) => d.id !== id),
+    deviceLogs: db.deviceLogs.filter((l) => l.deviceId !== id),
+  })),
+  setDeviceStatus: op<{ id: string; status: DeviceStatus }>("devices", (db, { id, status }) => {
+    const d = db.medicalDevices.find((x) => x.id === id);
+    if (!d) fail("الجهاز غير موجود.");
+    return { ...db, medicalDevices: upsert(db.medicalDevices, { ...d!, status }) };
+  }, "add"),
+  saveDeviceLog: op<DeviceLog>("devices", (db, l, ctx) => {
+    const device = db.medicalDevices.find((d) => d.id === l.deviceId);
+    if (!device) fail("الجهاز غير موجود.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(l.date)) fail("حدد تاريخ العملية.");
+    if (l.date > ctx.today) fail("تاريخ العملية لا يكون في المستقبل.");
+    if (!l.performedBy?.trim()) fail("اكتب اسم المهندس / الفني القائم بالعمل.");
+    if (!l.description?.trim()) fail("اكتب وصف العمل اللي اتعمل.");
+    if (l.kind === "calibration" && !l.result) fail("حدد نتيجة المعايرة.");
+    if (l.nextDue && l.nextDue <= l.date) fail("الموعد القادم يكون بعد تاريخ العملية.");
+    const existing = db.deviceLogs.find((x) => x.id === l.id);
+    const log: DeviceLog = {
+      ...l,
+      performedBy: l.performedBy.trim(),
+      description: l.description.trim(),
+      cost: round2(Math.max(0, Number(l.cost) || 0)),
+      result: l.kind === "calibration" || l.kind === "safety" ? l.result : undefined,
+      createdAt: existing?.createdAt ?? ctx.now,
+      recordedBy: existing?.recordedBy ?? ctx.actor.name,
+    };
+    const status = l.statusAfter ?? (l.kind === "calibration" && l.result === "fail" ? "out" : undefined);
+    return {
+      ...db,
+      deviceLogs: upsert(db.deviceLogs, log),
+      medicalDevices: status ? upsert(db.medicalDevices, { ...device!, status }) : db.medicalDevices,
+    };
+  }),
+  deleteDeviceLog: op<{ id: string }>("devices", (db, { id }) => ({
+    ...db,
+    deviceLogs: db.deviceLogs.filter((l) => l.id !== id),
+  })),
+  saveCalibrationGuide: op<CalibrationGuide>("devices", (db, g, ctx) => {
+    if (!db.departments.some((x) => x.id === g.department)) fail("اختر القسم.");
+    if (!g.title?.trim()) fail("اكتب عنوان الدليل.");
+    if (!g.fileId && !g.steps?.some((x) => x.trim())) fail("اكتب خطوات المعايرة أو ارفع ملف الدليل.");
+    const clean = (xs: string[] | undefined) => (xs ?? []).map((x) => x.trim()).filter(Boolean);
+    const existing = db.calibrationGuides.find((x) => x.id === g.id);
+    const guide: CalibrationGuide = {
+      ...g,
+      title: g.title.trim(),
+      deviceType: g.deviceType?.trim() || g.title.trim(),
+      tools: clean(g.tools),
+      steps: clean(g.steps),
+      acceptance: clean(g.acceptance),
+      createdAt: existing?.createdAt ?? ctx.now,
+      by: existing?.by ?? ctx.actor.name,
+    };
+    return { ...db, calibrationGuides: upsert(db.calibrationGuides, guide) };
+  }),
+  deleteCalibrationGuide: op<{ id: string }>("devices", (db, { id }) => ({
+    ...db,
+    calibrationGuides: db.calibrationGuides.filter((g) => g.id !== id),
+  })),
+
+  /* ---------- Patient-file handover register (سركي التسليم) ---------- */
+  saveFileHandover: op<FileHandover>("fileHandover", (db, h, ctx) => {
+    if (!db.departments.some((d) => d.id === h.fromDept)) fail("اختر القسم المُسلِّم.");
+    if (!db.departments.some((d) => d.id === h.toDept)) fail("اختر القسم المستلم.");
+    if (h.fromDept === h.toDept) fail("القسم المستلم لازم يكون غير القسم المُسلِّم.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(h.date)) fail("حدد تاريخ التسليم.");
+    const items: HandoverItem[] = (h.items ?? [])
+      .filter((i) => i.patientName?.trim())
+      .map((i) => ({
+        patientName: i.patientName.trim(),
+        mrn: i.mrn?.trim() || undefined,
+        fileType: i.fileType || "أخرى",
+        pages: i.pages && i.pages > 0 ? Math.round(i.pages) : undefined,
+        notes: i.notes?.trim() || undefined,
+      }));
+    if (!items.length) fail("أضف ملف مريض واحد على الأقل.");
+    if (items.length > 300) fail("أقصى عدد 300 ملف في السركي الواحد.");
+    if (!h.deliveredBy?.trim()) fail("اكتب اسم المُسلِّم.");
+    const existing = db.fileHandovers.find((x) => x.id === h.id);
+    if (existing && existing.status !== "sent") fail("السركي اتستلم — لا يمكن تعديله.");
+    const handover: FileHandover = {
+      id: h.id,
+      number: existing?.number ?? nextNumber(db.fileHandovers.map((x) => x.number), "HND", h.date),
+      date: h.date,
+      time: /^\d{2}:\d{2}$/.test(h.time) ? h.time : "00:00",
+      fromDept: h.fromDept,
+      toDept: h.toDept,
+      purpose: h.purpose?.trim() || "تسليم ملفات",
+      items,
+      deliveredBy: h.deliveredBy.trim(),
+      deliveredById: existing?.deliveredById ?? ctx.actor.id,
+      status: "sent",
+      notes: h.notes?.trim() || undefined,
+      createdAt: existing?.createdAt ?? ctx.now,
+    };
+    return { ...db, fileHandovers: upsert(db.fileHandovers, handover) };
+  }),
+  receiveFileHandover: op<{ id: string; received: boolean[]; receivedBy: string; note?: string; reject?: boolean }>(
+    "fileHandover",
+    (db, { id, received, receivedBy, note, reject }, ctx) => {
+      const h = db.fileHandovers.find((x) => x.id === id);
+      if (!h) fail("السركي غير موجود.");
+      if (h!.status !== "sent") fail("السركي اتستلم قبل كده.");
+      if (!receivedBy?.trim()) fail("اكتب اسم المستلم.");
+      if (reject && !note?.trim()) fail("اكتب سبب رفض الاستلام.");
+      const items = h!.items.map((it, i) => ({ ...it, received: !reject && !!received[i] }));
+      const status = receiveStatus(items, !!reject);
+      if (status !== "received" && !note?.trim()) fail("اكتب ملاحظة بالملفات الناقصة أو سبب الرفض.");
+      const next: FileHandover = {
+        ...h!,
+        items,
+        status,
+        receivedBy: receivedBy.trim(),
+        receivedById: ctx.actor.id,
+        receivedAt: ctx.now,
+        receiveNote: note?.trim() || undefined,
+      };
+      return { ...db, fileHandovers: upsert(db.fileHandovers, next) };
+    },
+  ),
+  deleteFileHandover: op<{ id: string }>("fileHandover", (db, { id }, ctx) => {
+    const h = db.fileHandovers.find((x) => x.id === id);
+    if (!h) return db;
+    if (h.status !== "sent" && ctx.actor.role !== "admin") fail("السركي المستلم لا يُحذف — مستند رسمي.");
+    return { ...db, fileHandovers: db.fileHandovers.filter((x) => x.id !== id) };
+  }),
+
+  /* ---------- Fiscal-year budget ---------- */
+  saveFiscalBudget: op<FiscalBudget>("costCenters", (db, b, ctx) => {
+    if (!(b.year >= 2000 && b.year <= 2100)) fail("السنة غير صحيحة.");
+    const existing = db.fiscalBudgets.find((x) => x.year === b.year);
+    if (existing?.status === "approved") fail("موازنة السنة دي معتمدة — ألغِ الاعتماد الأول عشان تعدّلها.");
+    const lines: FiscalBudgetLine[] = (b.lines ?? [])
+      .filter((l) => l.label?.trim())
+      .map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        label: l.label.trim(),
+        department: l.department || undefined,
+        category: l.category || undefined,
+        months: cleanMonths(l.months),
+        note: l.note?.trim() || undefined,
+      }));
+    if (lines.length > 400) fail("عدد بنود الموازنة كبير جدًا.");
+    const budget: FiscalBudget = {
+      year: b.year,
+      status: "draft",
+      lines,
+      openingCash: round2(Number(b.openingCash) || 0),
+      notes: b.notes?.trim() || undefined,
+      preparedBy: ctx.actor.name,
+      updatedAt: ctx.now,
+    };
+    return { ...db, fiscalBudgets: [...db.fiscalBudgets.filter((x) => x.year !== b.year), budget] };
+  }),
+  approveFiscalBudget: op<{ year: number; approve: boolean }>("costCenters", (db, { year, approve }, ctx) => {
+    if (!canSpendDirectly(ctx.actor)) fail("اعتماد الموازنة للمدير المالي أو مدير المستشفى فقط.");
+    const b = db.fiscalBudgets.find((x) => x.year === year);
+    if (!b) fail("مفيش موازنة محفوظة للسنة دي.");
+    if (approve && !b!.lines.length) fail("الموازنة فاضية — أضف البنود الأول.");
+    const next: FiscalBudget = approve
+      ? { ...b!, status: "approved", approvedBy: ctx.actor.name, approvedAt: ctx.now }
+      : { ...b!, status: "draft", approvedBy: undefined, approvedAt: undefined };
+    return { ...db, fiscalBudgets: [...db.fiscalBudgets.filter((x) => x.year !== year), next] };
+  }),
+  deleteFiscalBudget: op<{ year: number }>("costCenters", (db, { year }) => {
+    const b = db.fiscalBudgets.find((x) => x.year === year);
+    if (b?.status === "approved") fail("لا يمكن حذف موازنة معتمدة.");
+    return { ...db, fiscalBudgets: db.fiscalBudgets.filter((x) => x.year !== year) };
+  }),
+
+  /* ---------- Profit distribution policy ---------- */
+  saveProfitPolicy: op<ProfitPolicy>("reports", (db, p, ctx) => {
+    if (!canSpendDirectly(ctx.actor)) fail("سياسة توزيع الأرباح للمدير المالي أو مدير المستشفى فقط.");
+    if (!(p.year >= 2000 && p.year <= 2100)) fail("السنة غير صحيحة.");
+    const partners = (p.partners ?? []).map((x) => ({ name: x.name?.trim() ?? "", pct: round2(Number(x.pct) || 0) }));
+    const clean = { ...p, partners, taxPct: round2(Number(p.taxPct) || 0), reservePct: round2(Number(p.reservePct) || 0) };
+    const problem = policyProblem(clean);
+    if (problem) fail(problem);
+    const policy: ProfitPolicy = { ...clean, notes: p.notes?.trim() || undefined, updatedAt: ctx.now, by: ctx.actor.name };
+    return { ...db, profitPolicies: [...db.profitPolicies.filter((x) => x.year !== p.year), policy] };
+  }),
+
   /* ---------- Branches & currencies ---------- */
   saveBranch: op<Branch>("settings", (db, b) => {
     if (!b.name?.trim()) fail("اكتب اسم الفرع.");
@@ -3024,6 +3328,11 @@ export const OPS = {
     };
   }),
 
+  importLegacyData: op<{ document: LegacyDocument }>("settings", (db, a, ctx) => {
+    if (ctx.actor.role !== "admin") fail("نقل السيستم القديم لمدير المستشفى فقط.");
+    return mergeLegacyDocument(db, a.document);
+  }),
+
   replaceAll: op<{ db: unknown }>("system", (_db, a) => {
     const parsed = a.db as Partial<HospitalDB> | null;
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.transactions))
@@ -3102,6 +3411,7 @@ const ADD_OPS: Partial<Record<OpName, ((db: HospitalDB, args: never) => boolean)
   saveAsset: (db, a: { id: string }) => db.assets.some((x) => x.id === a.id),
   saveDoctor: (db, a: { id: string }) => db.doctors.some((x) => x.id === a.id),
   payDoctor: true,
+  payDoctorDaily: true,
   saveStockItem: (db, a: { id: string }) => db.stockItems.some((x) => x.id === a.id),
   addStockMove: true,
   addExpense: true,
@@ -3134,6 +3444,10 @@ const ADD_OPS: Partial<Record<OpName, ((db: HospitalDB, args: never) => boolean)
   payRefund: true,
   requestAdvance: true,
   payAdvance: true,
+  saveDevice: (db, a: { id: string }) => db.medicalDevices.some((x) => x.id === a.id),
+  saveDeviceLog: (db, a: { id: string }) => db.deviceLogs.some((x) => x.id === a.id),
+  saveFileHandover: (db, a: { id: string }) => db.fileHandovers.some((x) => x.id === a.id),
+  receiveFileHandover: true,
 };
 
 /** The permission level an operation needs on its section for these arguments. */
@@ -3185,6 +3499,7 @@ export function runOp<K extends OpName>(db: HospitalDB, name: K, args: OpArgs<K>
 }
 
 export const OP_LABELS: Record<OpName, string> = {
+  importLegacyData: "نقل بيانات السيستم القديم إلى السجلات الفعلية",
   closeCashDay: "الإقفال اليومي لإحدى الخزائن",
   fundCashbox: "تمويل خزينة من صاحب المستشفى",
   deleteOwnerFunding: "حذف تمويل من صاحب المستشفى",
@@ -3252,6 +3567,7 @@ export const OP_LABELS: Record<OpName, string> = {
   saveDoctor: "حفظ بيانات طبيب",
   deleteDoctor: "حذف طبيب",
   payDoctor: "صرف مستحقات طبيب",
+  payDoctorDaily: "صرف حق طبيب آخر الوردية",
   deleteDoctorPayout: "حذف صرف مستحقات طبيب",
   saveStockItem: "حفظ صنف مخزني",
   deleteStockItem: "حذف صنف مخزني",
@@ -3314,4 +3630,18 @@ export const OP_LABELS: Record<OpName, string> = {
   decideAdvance: "قرار على طلب سلفة",
   payAdvance: "صرف سلفة موظف",
   deleteAdvance: "حذف سلفة موظف",
+  saveDevice: "حفظ جهاز طبي",
+  deleteDevice: "حذف جهاز طبي وسجله",
+  setDeviceStatus: "تغيير حالة جهاز طبي",
+  saveDeviceLog: "تسجيل صيانة / معايرة جهاز",
+  deleteDeviceLog: "حذف تسجيل صيانة / معايرة",
+  saveCalibrationGuide: "حفظ دليل معايرة لقسم",
+  deleteCalibrationGuide: "حذف دليل معايرة",
+  saveFileHandover: "تسليم ملفات مرضى لقسم (سركي)",
+  receiveFileHandover: "استلام ملفات مرضى (سركي)",
+  deleteFileHandover: "حذف سركي تسليم",
+  saveFiscalBudget: "حفظ موازنة السنة المالية",
+  approveFiscalBudget: "اعتماد / إلغاء اعتماد موازنة السنة المالية",
+  deleteFiscalBudget: "حذف موازنة سنة مالية",
+  saveProfitPolicy: "حفظ سياسة توزيع الأرباح",
 };

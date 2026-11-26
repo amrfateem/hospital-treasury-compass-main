@@ -44,6 +44,20 @@ import {
   CloudOff,
   RefreshCw,
   Scale,
+  FileStack,
+  Wrench,
+  BarChart3,
+  ReceiptText,
+  HandHelping,
+  Gem,
+  CalendarRange,
+  CalendarClock,
+  FlaskConical,
+  ChevronDown,
+  Search,
+  HardDriveDownload,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -65,6 +79,8 @@ import { approvableCount } from "@/lib/hospital/approvals";
 import { cn } from "@/lib/utils";
 import { NotificationsBell, NotificationsPanel } from "@/components/hospital/notifications/NotificationsPanel";
 import { ServerAddress } from "@/components/hospital/ServerAddress";
+import { acknowledgeRecovery, backupNow, getBackupInfo } from "@/lib/hospital/backup.functions";
+import { BACKUP_CHANGED } from "@/lib/hospital/backup-events";
 
 type NavPath =
   | "/"
@@ -101,7 +117,16 @@ type NavPath =
   | "/settings"
   | "/patients"
   | "/staff"
-  | "/control";
+  | "/control"
+  | "/revenue-reports"
+  | "/payment-reports"
+  | "/petty-reports"
+  | "/profits"
+  | "/fiscal-budget"
+  | "/devices"
+  | "/file-handover"
+  | "/appointments"
+  | "/lab";
 
 interface NavItem {
   to: NavPath;
@@ -111,80 +136,117 @@ interface NavItem {
   sections: Section[];
 }
 
-const NAV: { group: string; items: NavItem[] }[] = [
+/**
+ * Side menu, ordered like the hospital's day: reception and patients first, then the money they
+ * bring in (treasury), the money going out, people, stock, reports, accounts and control.
+ */
+const NAV: { group: string; icon: LucideIcon; items: NavItem[] }[] = [
   {
     group: "الرئيسية",
+    icon: LayoutDashboard,
+    items: [{ to: "/", label: "لوحة التحكم", icon: LayoutDashboard, sections: ["dashboard"] }],
+  },
+  {
+    group: "الاستقبال والمرضى",
+    icon: Receipt,
     items: [
-      { to: "/", label: "لوحة التحكم", icon: LayoutDashboard, sections: ["dashboard"] },
+      { to: "/billing", label: "إيصالات المرضى", icon: Receipt, sections: ["billing"] },
+      { to: "/admissions", label: "المريض المقيم (دخول وخروج)", icon: BedDouble, sections: ["billing"] },
+      { to: "/patients", label: "ملفات المرضى والمتبقي", icon: FolderHeart, sections: ["patients"] },
+      { to: "/appointments", label: "المواعيد والحجوزات", icon: CalendarClock, sections: ["appointments"] },
+      { to: "/lab", label: "طلبات ونتائج المعمل", icon: FlaskConical, sections: ["lab"] },
+      { to: "/refunds", label: "مرتجعات المرضى", icon: Undo2, sections: ["billing"] },
+      { to: "/file-handover", label: "سركي تسليم الملفات", icon: FileStack, sections: ["fileHandover"] },
+    ],
+  },
+  {
+    group: "الأطباء والخدمات",
+    icon: Stethoscope,
+    items: [
+      { to: "/doctors", label: "الأطباء ومستحقاتهم", icon: Stethoscope, sections: ["doctors"] },
+      { to: "/services", label: "خدمات الأقسام وأسعارها", icon: ListChecks, sections: ["settings", "billing"] },
+    ],
+  },
+  {
+    group: "الخزينة والنقدية",
+    icon: Wallet,
+    items: [
       { to: "/treasury", label: "الخزائن وحركة النقدية", icon: Wallet, sections: ["treasury"] },
       { to: "/shifts", label: "الورديات وتقفيل الشيفت", icon: Timer, sections: ["shifts"] },
       { to: "/daily-closing", label: "الإقفال اليومي للخزينة", icon: CalendarCheck, sections: ["treasury"] },
-      { to: "/bank", label: "البنوك والمطابقة البنكية", icon: Landmark, sections: ["bank"] },
+      { to: "/bank", label: "البنوك والمطابقة", icon: Landmark, sections: ["bank"] },
     ],
   },
   {
-    group: "دورة الإيرادات",
+    group: "التأمين والآجل والفواتير",
+    icon: BadgePercent,
     items: [
-      { to: "/billing", label: "إيصالات المرضى بالأقسام", icon: Receipt, sections: ["billing"] },
-      { to: "/admissions", label: "حساب المريض المقيم (دخول وخروج)", icon: BedDouble, sections: ["billing"] },
-      { to: "/refunds", label: "مرتجعات المرضى", icon: Undo2, sections: ["billing"] },
-      { to: "/invoice-exports", label: "إدارة تصدير الفواتير", icon: FileOutput, sections: ["billing"] },
-      { to: "/services", label: "خدمات الأقسام وأسعارها", icon: ListChecks, sections: ["settings", "billing"] },
       { to: "/insurance", label: "مستحقات التأمين والتعاقدات", icon: BadgePercent, sections: ["insurance"] },
-      { to: "/doctors", label: "الأطباء ومستحقاتهم", icon: Stethoscope, sections: ["doctors"] },
-      { to: "/e-invoicing", label: "الفاتورة الإلكترونية والضرائب", icon: FileBadge, sections: ["eInvoicing"] },
       { to: "/receivables", label: "حسابات المرضى والشركات (الآجل)", icon: HandCoins, sections: ["receivables"] },
+      { to: "/e-invoicing", label: "الفاتورة الإلكترونية والضرائب", icon: FileBadge, sections: ["eInvoicing"] },
+      { to: "/invoice-exports", label: "تصدير الفواتير", icon: FileOutput, sections: ["billing"] },
     ],
   },
   {
-    group: "المرضى وشؤون العاملين",
-    items: [
-      { to: "/patients", label: "ملفات المرضى والمتبقي", icon: FolderHeart, sections: ["patients"] },
-      { to: "/staff", label: "شؤون العاملين والعقود", icon: IdCard, sections: ["hr"] },
-    ],
-  },
-  {
-    group: "الإيرادات والمصروفات والنثريات",
-    items: [
-      { to: "/revenues-expenses", label: "إدارة الإيرادات والمصروفات والنثريات", icon: Scale, sections: ["accounting", "expenses"] },
-    ],
-  },
-  {
-    group: "المصروفات",
+    group: "المصروفات والمشتريات",
+    icon: TrendingDown,
     items: [
       { to: "/expenses", label: "إدارة المصروفات", icon: TrendingDown, sections: ["expenses"] },
       { to: "/petty-cash", label: "النثريات", icon: Coins, sections: ["pettyCash"] },
       { to: "/orders", label: "أوامر الصرف والطلبيات", icon: PackageCheck, sections: ["orders"] },
-      { to: "/payroll", label: "الأجور والمرتبات", icon: Users, sections: ["payroll"] },
-      { to: "/advances", label: "سُلف العاملين", icon: Banknote, sections: ["payroll"] },
       { to: "/suppliers", label: "مشتريات الموردين", icon: Truck, sections: ["suppliers"] },
       { to: "/supplier-accounts", label: "كشف حساب الموردين", icon: ClipboardList, sections: ["supplierAccounts"] },
     ],
   },
   {
-    group: "المخازن والأصول",
+    group: "العاملين والمرتبات",
+    icon: Users,
     items: [
-      { to: "/stock", label: "المخزن العام (كل الأقسام)", icon: Pill, sections: ["stock"] },
+      { to: "/staff", label: "شؤون العاملين والعقود", icon: IdCard, sections: ["hr"] },
+      { to: "/payroll", label: "الأجور والمرتبات", icon: Users, sections: ["payroll"] },
+      { to: "/advances", label: "سُلف العاملين", icon: Banknote, sections: ["payroll"] },
+    ],
+  },
+  {
+    group: "المخازن والأجهزة",
+    icon: Pill,
+    items: [
+      { to: "/stock", label: "المخزن العام", icon: Pill, sections: ["stock"] },
+      { to: "/devices", label: "الأجهزة الطبية والصيانة", icon: Wrench, sections: ["devices"] },
       { to: "/inventory", label: "الأصول الثابتة والإهلاك", icon: Boxes, sections: ["inventory"] },
     ],
   },
   {
-    group: "المراجعة والرقابة",
+    group: "التقارير والأرباح",
+    icon: BarChart3,
     items: [
-      { to: "/control", label: "الرقابة ومنع التلاعب", icon: ShieldAlert, sections: ["approvals"] },
-      { to: "/review", label: "المراجعة والاعتمادات", icon: FileSearch, sections: ["review", "approvals"] },
-      { to: "/permissions", label: "صلاحيات المستخدمين", icon: ShieldCheck, sections: ["system"] },
+      { to: "/revenues-expenses", label: "الإيرادات والمصروفات بالتفصيل", icon: Scale, sections: ["accounting", "expenses"] },
+      { to: "/revenue-reports", label: "تقارير الإيرادات", icon: BarChart3, sections: ["reports"] },
+      { to: "/payment-reports", label: "تقارير المدفوعات", icon: ReceiptText, sections: ["reports"] },
+      { to: "/petty-reports", label: "تقارير النثريات", icon: HandHelping, sections: ["reports"] },
+      { to: "/profits", label: "أرباح المستشفى", icon: Gem, sections: ["reports"] },
+      { to: "/cost-centers", label: "مراكز التكلفة والربحية", icon: PieChart, sections: ["costCenters"] },
     ],
   },
   {
-    group: "التقارير والإعدادات",
+    group: "الحسابات العامة والإقفال",
+    icon: BookOpen,
     items: [
       { to: "/financial-reports", label: "القوائم المالية ودفتر الأستاذ", icon: BookOpen, sections: ["accounting"] },
       { to: "/journal", label: "القيود اليدوية ودليل الحسابات", icon: NotebookPen, sections: ["accounting"] },
-      { to: "/cost-centers", label: "مراكز التكلفة والربحية", icon: PieChart, sections: ["costCenters"] },
-      { to: "/budget", label: "الموازنة التقديرية", icon: Target, sections: ["costCenters"] },
+      { to: "/budget", label: "الموازنة التقديرية للأقسام", icon: Target, sections: ["costCenters"] },
+      { to: "/fiscal-budget", label: "ميزانية السنة المالية", icon: CalendarRange, sections: ["costCenters"] },
       { to: "/closing", label: "التقفيل الشهري والسنوي", icon: CalendarCheck2, sections: ["closing"] },
-      { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings, sections: ["settings"] },
+    ],
+  },
+  {
+    group: "الرقابة والإعدادات",
+    icon: ShieldCheck,
+    items: [
+      { to: "/review", label: "المراجعة والاعتمادات", icon: FileSearch, sections: ["review", "approvals"] },
+      { to: "/control", label: "الرقابة ومنع التلاعب", icon: ShieldAlert, sections: ["approvals"] },
+      { to: "/permissions", label: "صلاحيات المستخدمين", icon: ShieldCheck, sections: ["system"] },
+      { to: "/settings", label: "الإعدادات والنسخ الاحتياطي", icon: Settings, sections: ["settings"] },
     ],
   },
 ];
@@ -214,6 +276,8 @@ function Brand() {
   );
 }
 
+const OPEN_KEY = "alrahma-nav-open";
+
 function NavList({
   me,
   onNavigate,
@@ -224,56 +288,115 @@ function NavList({
   badges?: Partial<Record<NavPath, number>>;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [query, setQuery] = useState("");
+  // Groups the person opened by hand; the current page's group is always open.
+  const [opened, setOpened] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(OPEN_KEY) ?? "[]") as unknown;
+      if (Array.isArray(saved)) setOpened(saved.filter((x): x is string => typeof x === "string"));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggle = (group: string) =>
+    setOpened((prev) => {
+      const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group];
+      try {
+        window.localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  const q = query.trim();
+  const groups = NAV.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => visible(me, i) && (!q || i.label.includes(q) || g.group.includes(q))),
+  })).filter((g) => g.items.length > 0);
+  const total = groups.reduce((s, g) => s + g.items.length, 0);
+
   return (
-    <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-6">
-      {NAV.map((g) => {
-        const items = g.items.filter((i) => visible(me, i));
-        if (!items.length) return null;
-        return (
-          <div key={g.group}>
-            <p className="px-3 pb-2 text-[11px] font-semibold text-sidebar-foreground/50">
-              {g.group}
-            </p>
-            <ul className="space-y-1">
-              {items.map((item) => {
-                const active = isActive(item.to, pathname);
-                const Icon = item.icon;
-                return (
-                  <li key={item.to}>
-                    <Link
-                      to={item.to}
-                      onClick={onNavigate}
-                      className={cn(
-                        "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
-                        active
-                          ? "nav-active font-semibold text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "h-5 w-1 rounded-full transition-colors",
-                          active ? "bg-sidebar-primary" : "bg-transparent",
-                        )}
-                      />
-                      <Icon className={cn("size-4.5 shrink-0", active && "text-sidebar-primary")} />
-                      <span className="flex-1">{item.label}</span>
-                      {!!badges?.[item.to] && (
-                        <span
-                          className="num min-w-5 rounded-full bg-sidebar-primary px-1.5 text-center text-[11px] font-bold text-sidebar-primary-foreground"
-                          aria-label={`${badges[item.to]} طلب بانتظار اعتمادك`}
+    <nav className="flex flex-1 flex-col overflow-hidden">
+      {allowedItems(me).length > 8 && (
+        <div className="px-4 pb-3">
+          <label className="nav-search">
+            <Search className="size-4 shrink-0 opacity-60" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="ابحث عن صفحة…"
+              aria-label="ابحث عن صفحة في القائمة"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-sidebar-foreground/45"
+            />
+          </label>
+        </div>
+      )}
+      <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-6">
+        {groups.map((g) => {
+          const hasActive = g.items.some((i) => isActive(i.to, pathname));
+          const single = g.items.length === 1 && !q;
+          const open = !!q || hasActive || opened.includes(g.group) || single;
+          const badge = g.items.reduce((s, i) => s + (badges?.[i.to] ?? 0), 0);
+          const GroupIcon = g.icon;
+          return (
+            <div key={g.group}>
+              {!single && (
+                <button
+                  type="button"
+                  onClick={() => toggle(g.group)}
+                  aria-expanded={open}
+                  className={cn("nav-group", hasActive && "nav-group-current")}
+                >
+                  <GroupIcon className="size-4 shrink-0 opacity-70" />
+                  <span className="flex-1 text-right">{g.group}</span>
+                  {!open && !!badge && <span className="nav-badge num">{badge}</span>}
+                  <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
+                </button>
+              )}
+              {open && (
+                <ul className={cn("space-y-0.5", !single && "mb-2 mt-0.5")}>
+                  {g.items.map((item) => {
+                    const active = isActive(item.to, pathname);
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.to}>
+                        <Link
+                          to={item.to}
+                          onClick={onNavigate}
+                          className={cn(
+                            "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                            !single && "ps-5",
+                            active
+                              ? "nav-active font-semibold text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                          )}
                         >
-                          {badges[item.to]}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })}
+                          <span
+                            className={cn(
+                              "h-5 w-1 rounded-full transition-colors",
+                              active ? "bg-sidebar-primary" : "bg-transparent",
+                            )}
+                          />
+                          <Icon className={cn("size-4.5 shrink-0", active && "text-sidebar-primary")} />
+                          <span className="flex-1">{item.label}</span>
+                          {!!badges?.[item.to] && (
+                            <span className="nav-badge num" aria-label={`${badges[item.to]} طلب بانتظار اعتمادك`}>
+                              {badges[item.to]}
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+        {!total && <p className="px-3 py-6 text-center text-xs text-sidebar-foreground/60">لا توجد صفحة بهذا الاسم.</p>}
+      </div>
     </nav>
   );
 }
@@ -396,6 +519,108 @@ function SyncBadge({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** Warns the director when backups stopped, failed, or the database was recovered from a backup. */
+function BackupHealthAlert() {
+  const [problem, setProblem] = useState<string | null>(null);
+  const [action, setAction] = useState<"ack" | "backup" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const check = useCallback(() => {
+    void getBackupInfo()
+      .then((i) => {
+        if (!i.appMode) return;
+        const week = Date.now() - 7 * 86400000;
+        const rec = i.recoveries.find((r) => !r.acknowledgedAt && Date.parse(r.at) > week);
+        const stale = !i.lastAt || Date.now() - Date.parse(i.lastAt) > 26 * 3600 * 1000;
+        if (i.runningFromTemp) {
+          setAction(null);
+          setProblem(
+            "البرنامج مفتوح من جوه الملف المضغوط، فأي حاجة تتسجل هتضيع لما تقفله. اقفل البرنامج، اعمل «فك الضغط» (Extract All) للفولدر على الفلاشة أو الهارد، وشغّله من هناك.",
+          );
+        } else if (rec) {
+          setAction("ack");
+          setProblem(
+            rec.reason === "damaged-no-backup"
+              ? "ملف البيانات فيه مشكلة ومفيش نسخة سليمة — افتح النسخ الاحتياطي فورًا."
+              : rec.reason === "missing"
+                ? "البرنامج اتفتح من غير ملف بيانات، فرجّع بياناتك تلقائيًا من آخر نسخة احتياطية — راجع آخر الحركات واضغط «تمام، راجعت»."
+                : "ملف البيانات كان فيه مشكلة، فالنظام رجّع آخر نسخة احتياطية سليمة — راجع آخر الحركات واضغط «تمام، راجعت».",
+          );
+        } else if (stale && !i.running) {
+          setAction("backup");
+          setProblem(
+            i.lastError
+              ? `النسخ الاحتياطي مش بيكمل (${i.lastError}) — تأكد إن الفلاشة متوصلة واضغط «نسخ الآن».`
+              : "مفيش نسخة احتياطية من أكتر من يوم — تأكد إن الفلاشة متوصلة واضغط «نسخ الآن».",
+          );
+        } else if (i.destinations.some((d) => d.lastError)) {
+          setAction("backup");
+          setProblem("النسخ الاحتياطي فشل في مكان من الأماكن — اضغط «نسخ الآن» أو افتح الإعدادات وشوف التفاصيل.");
+        } else {
+          setAction(null);
+          setProblem(null);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    check();
+    // The start-up backup finishes a few seconds after the app opens; look again so the warning clears on its own.
+    const soon = setTimeout(check, 20_000);
+    const every = setInterval(check, 10 * 60_000);
+    // Settings → backup tells us when a backup ran or a recovery was reviewed, so the warning updates at once.
+    window.addEventListener(BACKUP_CHANGED, check);
+    return () => {
+      clearTimeout(soon);
+      clearInterval(every);
+      window.removeEventListener(BACKUP_CHANGED, check);
+    };
+  }, [check]);
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  useEffect(check, [path, check]);
+  const acknowledge = () => {
+    setBusy(true);
+    void acknowledgeRecovery()
+      .then(() => {
+        toast.success("تمام — الرسالة دي مش هتظهر تاني.");
+        setProblem(null);
+        window.dispatchEvent(new Event(BACKUP_CHANGED));
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "تعذّر الحفظ."))
+      .finally(() => setBusy(false));
+  };
+  const backup = () => {
+    setBusy(true);
+    void backupNow()
+      .then((r) => {
+        if (r.failed.length) toast.warning(`اتحفظت في ${r.saved} مكان، وفشلت في ${r.failed.length}: ${r.failed[0]?.error ?? ""}`);
+        else toast.success(`تم النسخ الاحتياطي في ${r.saved} مكان.`);
+        window.dispatchEvent(new Event(BACKUP_CHANGED));
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "تعذّر النسخ الاحتياطي."))
+      .finally(() => setBusy(false));
+  };
+  if (!problem) return null;
+  return (
+    <div className="mb-6 flex w-full flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
+      <HardDriveDownload className="size-4 shrink-0" />
+      <span className="flex-1">{problem}</span>
+      <Link to="/settings" className="text-xs font-semibold underline-offset-2 hover:underline">
+        الإعدادات ← النسخ الاحتياطي
+      </Link>
+      {action === "ack" && (
+        <Button size="sm" variant="outline" onClick={acknowledge} disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} تمام، راجعت
+        </Button>
+      )}
+      {action === "backup" && (
+        <Button size="sm" variant="outline" onClick={backup} disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <HardDriveDownload />} نسخ الآن
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** Tells an approver (the finance manager) that requests are waiting, and when a new one arrives. */
 function ApprovalAlert({ onOpen }: { onOpen: () => void }) {
   const { me, db } = useHospitalSession();
@@ -500,6 +725,7 @@ export function AppShell({ children, onSignOut }: { children: ReactNode; onSignO
         <main key={pathname} className="fade-up flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
           <LegacyImport />
           {pathname !== "/review" && <ApprovalAlert onOpen={openNotifications} />}
+          {me.role === "admin" && pathname !== "/settings" && <BackupHealthAlert />}
           {readOnly && (
             <div className="mb-6 flex items-center gap-2 rounded-lg border border-copper/40 bg-copper/10 px-4 py-2.5 text-sm">
               <Eye className="size-4 shrink-0 text-copper" />

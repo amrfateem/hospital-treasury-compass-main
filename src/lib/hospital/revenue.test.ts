@@ -3,6 +3,7 @@ import {
   boxBalance,
   costCenters,
   doctorDues,
+  doctorStatement,
   invoiceAmounts,
   shiftDifferences,
   stayDays,
@@ -318,6 +319,31 @@ describe("doctors' dues", () => {
     expect(d.supervision).toBe(600);
     expect(d.total).toBe(6720);
     expect(d.remaining).toBe(5720);
+  });
+});
+
+describe("clinic doctors' percentage", () => {
+  const items = [
+    { description: "كشف", qty: 1, unitPrice: 300, kind: "consult" as const },
+    { description: "سونار", qty: 1, unitPrice: 200, kind: "procedure" as const },
+    { description: "دواء", qty: 2, unitPrice: 50, kind: "other" as const, stockItemId: "s1" },
+  ];
+  const rec = (id: string, doctorId: string, date: string) => ({ ...baseInvoice, id, number: id, patientName: "م", date, doctorId, items });
+  const invoices = [rec("r2", "a", "2026-11-20"), rec("r1", "a", "2026-11-03"), rec("r3", "b", "2026-11-05"), rec("r4", "a", "2026-10-30")];
+  const terms = { id: "a", monthlySalary: 0, consultPercent: 40, surgeryFee: 0, supervisionPerDay: 0 };
+
+  it("takes the percentage from consultation lines only by default", () => {
+    expect(doctorDues(terms, invoices, [], "2026-11").consult).toBe(240); // 40% × 300 × 2 receipts
+  });
+
+  it("can take the percentage from every service line except store items", () => {
+    expect(doctorDues({ ...terms, percentOn: "all" }, invoices, [], "2026-11").consult).toBe(400); // 40% × 500 × 2
+  });
+
+  it("lists only that doctor's receipts of the month, oldest first, with each share", () => {
+    const rows = doctorStatement(terms, invoices, "2026-11");
+    expect(rows.map((r) => r.invoice.id)).toEqual(["r1", "r2"]);
+    expect(rows[0]!.percent).toBe(120);
   });
 });
 

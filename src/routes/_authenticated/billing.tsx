@@ -32,9 +32,9 @@ import { dateLabel, int, isoDate, money, periodOf } from "@/lib/hospital/format"
 import { invoiceAmounts } from "@/lib/hospital/finance";
 import { patientMoney } from "@/lib/hospital/patient-money";
 import { exportedIds, invoiceContext } from "@/lib/hospital/invoice-export";
-import { useReceiptPrinter } from "@/lib/hospital/receipt-printer";
+import { layoutOf, useReceiptPrinter } from "@/lib/hospital/receipt-printer";
 import { isNativePrint, printReceiptNative } from "@/lib/hospital/native-print";
-import { printHtml, thermalReceiptHtml } from "@/lib/hospital/thermal-receipt";
+import { printableWidth, printHtml, thermalReceiptHtml } from "@/lib/hospital/thermal-receipt";
 import { needsReceiptApproval } from "@/lib/hospital/permissions";
 import {
   canReceptionEdit,
@@ -175,17 +175,18 @@ function BillingPage() {
   /** Prints on the receipt (thermal) printer; the first print locks the receipt like A4/A5. */
   function printReceipt(inv: PatientInvoice) {
     const html = thermalReceiptHtml(db, inv, {
-      width: printer.width,
+      ...layoutOf(printer),
       copies: printer.copies,
       reprint: !!inv.printedAt,
       printedAt: Date.now(),
     });
     void (async () => {
-      const direct = printer.silent && !!printer.printer && isNativePrint();
+      const direct = printer.silent && isNativePrint();
       if (direct) {
         try {
           await printReceiptNative(html, {
             widthMm: printer.width,
+            printableMm: printableWidth(printer.width, printer.printableMm),
             copies: printer.copies,
             printer: printer.printer,
             cut: true,
@@ -199,7 +200,7 @@ function BillingPage() {
           });
         }
       }
-      await printHtml(html, printer.width);
+      await printHtml(html, printer.width, printer.page);
       if (!inv.printedAt) markInvoicePrinted(inv.id);
     })();
   }
@@ -217,12 +218,13 @@ function BillingPage() {
       createdAt: Date.now(),
       createdBy: me?.name,
     };
-    const html = thermalReceiptHtml(db, sample, { width: printer.width, copies: 1, printedAt: Date.now() });
+    const html = thermalReceiptHtml(db, sample, { ...layoutOf(printer), copies: 1, printedAt: Date.now() });
     void (async () => {
-      if (printer.silent && printer.printer && isNativePrint()) {
+      if (printer.silent && isNativePrint()) {
         try {
           await printReceiptNative(html, {
             widthMm: printer.width,
+            printableMm: printableWidth(printer.width, printer.printableMm),
             copies: 1,
             printer: printer.printer,
             cut: true,
@@ -234,7 +236,7 @@ function BillingPage() {
           toast.error(`تعذّرت الطباعة المباشرة: ${message}`, { description: "سنفتح نافذة الطباعة كبديل." });
         }
       }
-      await printHtml(html, printer.width);
+      await printHtml(html, printer.width, printer.page);
     })();
   }
 

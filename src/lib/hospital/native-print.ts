@@ -36,7 +36,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function renderRaster(html: string, widthMm: number, dots: number) {
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${widthMm}mm;height:1600px;border:0;background:#fff;`;
+  frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${widthMm}mm;height:8000px;border:0;background:#fff;`;
   frame.srcdoc = html;
   const loaded = new Promise<void>((resolve) => {
     frame.onload = () => resolve();
@@ -60,6 +60,8 @@ async function renderRaster(html: string, widthMm: number, dots: number) {
     const { default: html2canvas } = await import("html2canvas-pro");
     const shot = await html2canvas(slip, {
       scale: dots / cssWidth,
+      // Long receipts: render the whole slip, not only what fits in the frame's window.
+      windowHeight: Math.max(slip.scrollHeight + 50, 1600),
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
@@ -91,25 +93,58 @@ async function renderRaster(html: string, widthMm: number, dots: number) {
       }
     }
 
+    // Never feed blank paper: cut white rows above and below the printed content.
+    const trimmed = trimRaster(packed, widthBytes, height);
     let binary = "";
-    for (let i = 0; i < packed.length; i += 0x8000) {
-      binary += String.fromCharCode(...packed.subarray(i, i + 0x8000));
+    for (let i = 0; i < trimmed.data.length; i += 0x8000) {
+      binary += String.fromCharCode(...trimmed.data.subarray(i, i + 0x8000));
     }
-    return { widthBytes, height, data: btoa(binary) };
+    return { widthBytes, height: trimmed.height, data: btoa(binary) };
   } finally {
     frame.remove();
   }
 }
 
+/**
+ * Removes the empty (all-white) raster rows above and below the printed content, keeping a
+ * small margin (in dots, 8 dots = 1 mm at 203 dpi), so the roll is not wasted on blank paper.
+ */
+export function trimRaster(packed: Uint8Array, widthBytes: number, height: number, topDots = 8, bottomDots = 16) {
+  const blank = (y: number) => {
+    for (let i = y * widthBytes, end = i + widthBytes; i < end; i++) if (packed[i]) return false;
+    return true;
+  };
+  let first = 0;
+  while (first < height && blank(first)) first++;
+  if (first >= height) return { data: new Uint8Array(widthBytes), height: 1 };
+  let last = height - 1;
+  while (last > first && blank(last)) last--;
+  const top = Math.min(topDots, first);
+  const bottom = Math.min(bottomDots, height - 1 - last);
+  const rows = last - first + 1;
+  const out = new Uint8Array(widthBytes * (top + rows + bottom));
+  out.set(packed.subarray(first * widthBytes, (last + 1) * widthBytes), top * widthBytes);
+  return { data: out, height: top + rows + bottom };
+}
+
+/** Head width in dots (203 dpi, multiple of 8) for a printable width in mm: 72 mm → 576, 48 mm → 384. */
+export function dotsFor(printableMm: number) {
+  return Math.min(832, Math.max(256, Math.round((printableMm * 203) / 25.4 / 8) * 8));
+}
+
 export async function printReceiptNative(
   html: string,
-  opts: { widthMm: number; copies: number; printer: string; cut?: boolean },
+  opts: { widthMm: number; printableMm?: number; copies: number; printer: string; cut?: boolean },
 ) {
   if (!isNativePrint()) throw new Error("الطباعة المباشرة غير متاحة في هذا الإصدار.");
-  const dots = opts.widthMm === 58 ? 384 : 576;
+  // No printer picked on this device yet: use the Windows default printer instead of opening the
+  // browser print window (which centres the slip on the driver's page and wastes paper).
+  const printer = opts.printer || (await defaultPrinter().catch(() => ""));
+  if (!printer) throw new Error("اختر طابعة الإيصالات من زر «طابعة الإيصالات».");
+  const dots = dotsFor(opts.printableMm ?? (opts.widthMm === 58 ? 48 : 72));
   const raster = await renderRaster(html, opts.widthMm, dots);
   await invoke("print_receipt_raw", {
-    printer: opts.printer,
+    printer,
     widthBytes: raster.widthBytes,
     height: raster.height,
     data: raster.data,

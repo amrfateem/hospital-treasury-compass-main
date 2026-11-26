@@ -1,6 +1,6 @@
 [package]
 name = "alrahma-hospital"
-version = "0.2.0"
+version = "0.3.0"
 description = "Al-Rahma Hospital treasury and accounting system"
 authors = ["Al-Rahma Hospital"]
 edition = "2021"

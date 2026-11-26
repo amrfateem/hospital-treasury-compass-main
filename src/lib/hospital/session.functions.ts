@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server";
+import { deleteCookie, getCookie, getRequestProtocol, setCookie } from "@tanstack/react-start/server";
 import type { Me } from "./me";
 import { normalizeUsername } from "./staff";
 
@@ -31,6 +31,18 @@ function noteFailure(username: string) {
   attempts.set(username, next);
 }
 
+/**
+ * Session cookie flags. On the hospital network (plain http://alrahma.local) a Lax cookie is right.
+ * Over https the app may be shown inside another site's frame (online preview), where browsers drop
+ * Lax cookies after sign-in — so there it is SameSite=None; Secure; Partitioned.
+ */
+function cookieFlags() {
+  const https = getRequestProtocol() === "https";
+  return https
+    ? ({ path: "/", sameSite: "none", secure: true, partitioned: true } as const)
+    : ({ path: "/", sameSite: "lax" } as const);
+}
+
 /** Current signed-in staff member, or null. Used at app start and before protected pages. */
 export const getSession = createServerFn({ method: "GET" }).handler(async () => {
   const { SESSION_COOKIE, userForSession } = await import("./auth.server");
@@ -58,9 +70,8 @@ export const signIn = createServerFn({ method: "POST" })
     const user = loadMe(profile.id);
     const token = createSession(profile.id);
     setCookie(SESSION_COOKIE, token, {
+      ...cookieFlags(),
       httpOnly: true,
-      sameSite: "lax",
-      path: "/",
       maxAge: SESSION_DAYS * 24 * 60 * 60,
     });
     return { user };
@@ -69,6 +80,6 @@ export const signIn = createServerFn({ method: "POST" })
 export const signOut = createServerFn({ method: "POST" }).handler(async () => {
   const { SESSION_COOKIE, deleteSession } = await import("./auth.server");
   deleteSession(getCookie(SESSION_COOKIE));
-  deleteCookie(SESSION_COOKIE, { path: "/" });
+  deleteCookie(SESSION_COOKIE, cookieFlags());
   return { ok: true as const };
 });
